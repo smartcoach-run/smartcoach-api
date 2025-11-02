@@ -1,38 +1,24 @@
-from flask import Flask, request, jsonify
-import requests
-import os
+import json
+from qualite import controle_rg  # Assure-toi que le fichier est dans un dossier `qualite/controle_rg.py`
 
-app = Flask(__name__)
+def main():
+    # Simule la récupération des données depuis Postman ou Make (pour test local)
+    with open("input.json", "r", encoding="utf-8") as file:
+        data = json.load(file)
 
-AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
-AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
-AIRTABLE_TABLE_NAME = os.getenv("AIRTABLE_TABLE_NAME")
+    fields = data.get("fields", {})
 
-@app.route("/")
-def home():
-    return "✅ SmartCoach API is running"
+    # 🔍 Étape 1 : Appliquer les règles qualité
+    fields = controle_rg.run_regles(fields)
 
-@app.route("/generate_by_id", methods=["POST"])
-def generate_by_id():
-    data = request.get_json()
-    record_id = data.get("id_airtable")
+    # 🔁 Étape 2 : Traitement principal (placeholder ici)
+    print("=== FIELDS MIS À JOUR ===")
+    for k, v in fields.items():
+        print(f"{k}: {v}")
 
-    if not record_id:
-        return jsonify({"error": "Missing id_airtable"}), 400
-
-    url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}/{record_id}"
-    headers = {
-        "Authorization": f"Bearer {AIRTABLE_API_KEY}"
-    }
-
-    r = requests.get(url, headers=headers)
-
-    if r.status_code != 200:
-        return jsonify({"error": "Airtable record not found"}), 404
-
-    fields = r.json().get("fields", {})
-    return jsonify({"fields": fields})
+    # (Éventuellement : renvoyer un résultat JSON ou l’écrire dans un fichier)
+    with open("output.json", "w", encoding="utf-8") as f:
+        json.dump({"fields": fields}, f, indent=4, ensure_ascii=False)
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    main()

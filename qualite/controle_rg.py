@@ -1,61 +1,39 @@
-def controle_qualite(data: dict) -> dict:
-    log = {}
-    plan_ok = True
+# qualite/controle_rg.py
 
-    # RG1 – VDOT obligatoire
-    if not data.get("VDOT_initial"):
-        log["Check_vdot"] = "⛔ VDOT manquant"
-        plan_ok = False
-    else:
-        log["Check_vdot"] = "✅ OK"
+def to_number(value):
+    """Convertit proprement les valeurs Airtable (num, str, list)."""
+    if isinstance(value, list) and len(value) > 0:
+        value = value[0]
+    try:
+        return float(value)
+    except:
+        return None
 
-    # RG2 – Nb jours min selon niveau
-    nb_jours_dispo = len(data.get("📅 Jours_final", []))
-    niveau = data.get("Niveau_normalisé", "")
-    if niveau == "Débutant" and nb_jours_dispo < 2:
-        log["Check_jours"] = "⛔ Trop peu de jours pour un débutant"
-        plan_ok = False
-    else:
-        log["Check_jours"] = "✅ OK"
 
-    # RG3 – Cohérence date course vs date aujourd’hui
-    # (exemple, tu peux adapter)
-    # …
-
-    return {
-        "plan_ok": plan_ok,
-        "log": log,
-    }
-def run_all_checks(fields):
+def verifier_vdot(record):
     """
-    Applique les règles de gestion à un enregistrement Airtable
+    Vérifie la cohérence du VDOT.
+    Retourne un tuple (etat, message, vdot_utilise_final).
     """
-    prenom = fields.get("Prénom", "athlète")
-    niveau = fields.get("Niveau_normalisé", "")
-    nb_jours = fields.get("📅Nb_jours_final", 0)
-    vdot = fields.get("VDOT_utilisé", None)
-    objectif = fields.get("Objectif_format_LK", "")
 
-    resultats = {}
+    vdot_initial = to_number(record.get("VDOT_initial"))
+    vdot_moyen = to_number(record.get("VDOT_moyen_LK"))
+    vdot_utilise = to_number(record.get("VDOT_utilisé"))
 
-    # --- Règles simples ---
-    if vdot is None:
-        resultats["check_vdot"] = "⛔ VDOT manquant"
-    else:
-        resultats["check_vdot"] = f"✅ VDOT = {vdot}"
+    # 1) Cas où aucune donnée VDOT n’est exploitable → bloquant
+    if not vdot_initial and not vdot_moyen and not vdot_utilise:
+        return ("KO", "⛔ Aucun VDOT disponible (ni chrono ni estimation).", None)
 
-    if niveau == "":
-        resultats["check_niveau"] = "⛔ Niveau vide"
-    else:
-        resultats["check_niveau"] = f"✅ Niveau = {niveau}"
+    # 2) Cas courant : retour / reprise → pas de chrono, mais VDOT_utilisé existe
+    if not vdot_initial and vdot_utilise:
+        return ("OK", f"✅ VDOT estimé utilisé ({vdot_utilise}).", vdot_utilise)
 
-    if isinstance(nb_jours, int) and nb_jours < 2:
-        resultats["check_jours"] = f"⛔ Trop peu de jours ({nb_jours})"
-    else:
-        resultats["check_jours"] = f"✅ Nb jours = {nb_jours}"
+    # 3) Cas normal : VDOT basé sur données de référence
+    if vdot_initial:
+        return ("OK", f"✅ VDOT basé sur référence ({vdot_initial}).", vdot_initial)
 
-    # --- Message coach personnalisé ---
-    message_coach = f"🔥 {prenom}, ton plan pour le {objectif} commence !"
-    resultats["🧠 Message_coach"] = message_coach
+    # 4) Cas fallback : on prend le meilleur dispo
+    if vdot_moyen:
+        return ("OK", f"✅ VDOT moyen historique utilisé ({vdot_moyen}).", vdot_moyen)
 
-    return resultats
+    return ("KO", "⛔ VDOT non déterminable.", None)
