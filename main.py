@@ -1,6 +1,9 @@
 from flask import Flask, request, jsonify
 import requests
 import os
+from urllib.parse import quote
+
+# Import des règles de gestion
 from qualite.controle_rg import verifier_vdot, verifier_jours
 
 app = Flask(__name__)
@@ -13,6 +16,9 @@ AIRTABLE_TABLE_NAME = os.getenv("AIRTABLE_TABLE_NAME")
 AIRTABLE_VDOT_TABLE_NAME = os.getenv("AIRTABLE_VDOT_TABLE_NAME", "VDOT_reference")
 VDOT_LINK_FIELD_NAME = os.getenv("VDOT_LINK_FIELD_NAME", "📐 VDOT_reference")
 VDOT_FIELD_NAME = os.getenv("VDOT_FIELD_NAME", "VDOT")
+
+# Paramètres table Séances
+SEANCES_TABLE_NAME = os.getenv("AIRTABLE_SEANCES_TABLE_NAME", "🏋️ Séances")
 
 
 @app.route("/")
@@ -40,7 +46,7 @@ def generate_by_id():
     record = r.json()
     fields = record.get("fields", {})
 
-    # 2) Récupération VDOT (fallback via référentiel si besoin)
+    # 2) Récupération VDOT (fallback via référentiel si lien)
     vdot_utilise = fields.get("VDOT_utilisé")
     if vdot_utilise is None:
         linked_ids = fields.get(VDOT_LINK_FIELD_NAME, [])
@@ -68,37 +74,54 @@ def generate_by_id():
     etat_jours, message_jours, jours_final = verifier_jours(fields)
     print("JOURS:", etat_jours, message_jours, jours_final)
 
-    # Convertit en entier de manière robuste
     try:
         jours_final = int(jours_final)
     except:
-        jours_final = 1  # sécurité minimale (ne bloque jamais)
+        jours_final = 1
     fields["📅 Jours_final"] = jours_final
 
+    # 5) Sélection des séances (robuste aux emojis/accents et aux types)
+    seances_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{quote(SEANCES_TABLE_NAME)}"
+    r_seances = requests.get(seances_url, headers=headers)
 
-    # 5) Sélection des séances
-    seances_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/Séances"
-    params = {
-        "filterByFormula": f"AND({vdot_final} >= {{VDOT_min}}, {vdot_final} <= {{VDOT_max}})"
-    }
-    r_seances = requests.get(seances_url, headers=headers, params=params)
-    seances_records = r_seances.json().get("records", [])
+    if r_seances.status_code != 200:
+        print("ERROR FETCH SEANCES:", r_seances.status_code, r_seances.text)
+        return jsonify({"status": "error", "message": "Cannot fetch Séances table"}), 500
 
-    seances_selection = seances_records[:max(jours_final, 1)]
+    data_seances = r_seances.json()
+    seances_records = data_seances.get("records", [])
 
+    # Filtrage Python
+    seances_filtered = []
+    for s in seances_records:
+        f = s.get("fields", {})
+        vmin = f.get("VDOT_min")
+        vmax = f.get("VDOT_max")
+        try:
+            vmin = float(vmin) if vmin is not None else None
+            vmax = float(vmax) if vmax is not None else None
+        except:
+            continue
+        if vmin is not None and vmax is not None and vmin <= float(vdot_final) <= vmax:
+            seances_filtered.append(s)
+
+    # Sélection du volume exact (au moins 1 séance)
+    seances_selection = seances_filtered[:max(jours_final, 1)]
+
+    # Formatage standardisé pour Make
     seances = []
     for s in seances_selection:
         f = s.get("fields", {})
         seances.append({
+            "id": s.get("id"),
             "nom": f.get("Nom_séance"),
             "structure": f.get("Structure_séance"),
             "conseil": f.get("Conseil_coach"),
             "duree": f.get("Durée_totale_min"),
-            "type": f.get("Type_séance"),
-            "id": s.get("id")
+            "type": f.get("Type_séance")
         })
 
-    # 6) Retour API standardisé (pour Make)
+    # 6) Retour API propre
     return jsonify({
         "status": "ok",
         "fields": fields,
