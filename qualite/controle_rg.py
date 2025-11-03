@@ -43,41 +43,42 @@ def verifier_vdot(fields):
 
 def verifier_jours(fields):
     """
-    Vérifie et ajuste le nombre de jours d'entraînement selon les RG B03-COH.
-    Champs utilisés :
-      - 📅 Jours_disponibles
-      - Nb_jours_min
-      - Nb_jours_max
-    
-    Sortie :
-      - etat ("OK")
-      - message_id ("SC_COACH_001" ou "SC_COACH_002")
-      - jours_final (int)
+    Vérifie et ajuste le nombre de jours d'entraînement
+    sur la base du référentiel Jours_min / Jours_max
+    issu de 📘 Référentiel Niveaux.
     """
 
-    jours_dispo = fields.get("📅 Jours_disponibles")
-    min_j = fields.get("Nb_jours_min")
-    max_j = fields.get("Nb_jours_max")
-
-    # Si pas de référentiel → on ne bloque jamais → on renvoie ce qui est disponible
-    if min_j is None or max_j is None:
-        # Par défaut, on valide
-        return "OK", "SC_COACH_001", jours_dispo
-
-    # --- RG B03-COH-06 : Aucun jour saisi
+    jours_dispo = fields.get("📅Nb_jours_dispo")
     if jours_dispo is None:
-        jours_final = min_j
-        return "OK", "SC_COACH_002", jours_final
+        return "OK", None, 1  # fallback minimal => jamais bloquant
 
-    # --- RG B03-COH-04 : Jours < min
-    if jours_dispo < min_j:
-        jours_final = min_j
-        return "OK", "SC_COACH_002", jours_final
+    ref = fields.get("📘 Référentiel Niveaux", [])
+    if not isinstance(ref, list) or len(ref) == 0:
+        return "OK", None, jours_dispo  # pas de référence => on garde
 
-    # --- RG B03-COH-05 : Jours > max
-    if jours_dispo > max_j:
-        jours_final = max_j
-        return "OK", "SC_COACH_002", jours_final
+    # Airtable renvoie une liste d'IDs => ici on suppose que le script les a déjà enrichis
+    # donc les valeurs min / max doivent être directement dans fields :
+    jours_min = fields.get("Jours_min")
+    jours_max = fields.get("Jours_max")
 
-    # --- B03-COH-01 & B03-COH-03 : Cohérent → on valide
-    return "OK", "SC_COACH_001", jours_dispo
+    # Si pas trouvés, on laisse sans correction
+    if jours_min is None or jours_max is None:
+        return "OK", None, jours_dispo
+
+    try:
+        jours_min = int(jours_min)
+        jours_max = int(jours_max)
+        jours_dispo = int(jours_dispo)
+    except:
+        return "OK", None, 1
+
+    # RG B03-COH-01 — Trop bas → on remonte au min
+    if jours_dispo < jours_min:
+        return "WARN", "SC_COACH_003", jours_min
+
+    # RG B03-COH-02 — Trop haut → on limite
+    if jours_dispo > jours_max:
+        return "WARN", "SC_COACH_004", jours_max
+
+    # RG B03-COH-03 — Cohérent → pas de changement
+    return "OK", "SC_COACH_002", jours_dispo
