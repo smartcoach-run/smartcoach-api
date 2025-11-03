@@ -1,19 +1,19 @@
-print("DEBUG KEY:", AIRTABLE_KEY)
-print("DEBUG BASE:", BASE_ID)
-
 from flask import Flask, request, jsonify
 from pyairtable import Api
 import os
 
 app = Flask(__name__)
 
+# Chargement des variables Render
 AIRTABLE_KEY = os.environ.get("AIRTABLE_KEY")
 BASE_ID = os.environ.get("BASE_ID")
 
+# Connexion Airtable
 api = Api(AIRTABLE_KEY)
-TABLE_COUR = api.table(BASE_ID, "🏃 Coureurs")
-TABLE_SEANCES = api.table(BASE_ID, "📘 Séances types")
 
+# Tables (➡️ Utiliser EXACTEMENT les noms affichés dans Airtable)
+TABLE_COUR = api.table(BASE_ID, "Coureurs")       # ou "🏃 Coureurs" si c'est le nom affiché
+TABLE_SEANCES = api.table(BASE_ID, "Séances")     # ou "📘 Séances"
 
 def verifier_jours(fields):
     jours_dispo = fields.get("📅Nb_jours_dispo")
@@ -46,6 +46,7 @@ def verifier_jours(fields):
 def generate_by_id():
     data = request.json
     record_id = data.get("id")
+
     rec = TABLE_COUR.get(record_id)
     fields = rec["fields"]
 
@@ -53,49 +54,40 @@ def generate_by_id():
     objectif = fields.get("Objectif_normalisé")
     vdot = fields.get("VDOT_utilisé")
 
-    # Vérification / Ajustement jours
     _, _, jours_final = verifier_jours(fields)
 
-    # 🔥 NOUVEAU → filtre Phase cohérente avec début de plan
     PHASES_AUTORISEES = ["Prépa générale", "Progression"]
 
-    # Récupérer les séances avec filtrage multi-critères
     all_seances = TABLE_SEANCES.all()
-
     seances_valides = []
+
     for s in all_seances:
         f = s.get("fields", {})
 
         if f.get("Mode") != "Running":
             continue
 
-        # Phase cohérente avec début de plan
         if f.get("Phase") not in PHASES_AUTORISEES:
             continue
 
-        # Niveau compatible
         niveaux = f.get("Niveau", [])
         if isinstance(niveaux, str):
             niveaux = [niveaux]
-
         if niveau not in niveaux:
             continue
 
-        # Objectif compatible
         objectifs = f.get("Objectif", [])
         if isinstance(objectifs, str):
             objectifs = [objectifs]
-
         if objectif not in objectifs:
             continue
 
-        # Contrôle VDOT
         vmin = f.get("VDOT_min")
         vmax = f.get("VDOT_max")
-        if vmin is not None and vmax is not None and vdot is not None:
+        if vmin and vmax and vdot:
             try:
-                vdot_float = float(vdot)
-                if not (float(vmin) <= vdot_float <= float(vmax)):
+                vdot_f = float(vdot)
+                if not (float(vmin) <= vdot_f <= float(vmax)):
                     continue
             except:
                 pass
@@ -107,10 +99,9 @@ def generate_by_id():
             "type": f.get("Type"),
             "phase": f.get("Phase"),
             "conseil": f.get("🧠 Message_coach (modèle)"),
-            "charge": f.get("Charge", 2)  # fallback safe
+            "charge": f.get("Charge", 2)
         })
 
-    # Aucun résultat → message admin + retour
     if len(seances_valides) == 0:
         return jsonify({
             "status": "error",
@@ -119,10 +110,7 @@ def generate_by_id():
             "seances": []
         })
 
-    # Sélectionner les meilleures séances (tri progressivité)
     seances_valides = sorted(seances_valides, key=lambda x: (x["charge"], x["duree_min"]))
-
-    # On garde exactement le nombre de séances nécessaires
     seances_finales = seances_valides[:jours_final]
 
     return jsonify({
@@ -141,4 +129,5 @@ def home():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
