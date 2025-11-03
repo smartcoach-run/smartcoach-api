@@ -1,3 +1,4 @@
 flask
 airtable-python-wrapper
 python-dotenv
+pyairtable==1.6.1
