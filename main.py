@@ -1,3 +1,6 @@
+print("DEBUG KEY:", AIRTABLE_KEY)
+print("DEBUG BASE:", BASE_ID)
+
 from flask import Flask, request, jsonify
 from pyairtable import Api
 import os
