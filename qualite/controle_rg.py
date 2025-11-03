@@ -1,48 +1,45 @@
 def verifier_vdot(fields):
     """
-    Vérifie la valeur de VDOT à utiliser en fonction des règles de gestion.
-    Règle principale : B04-VDOT-02
-
+    Détermine le VDOT à utiliser selon les règles de gestion.
     Champs utilisés :
-      - VDOT_utilisé : valeur finale normalement calculée ou saisie
-      - VDOT_initial : valeur par défaut issue du niveau du coureur
-      - VDOT_moyen_LK : estimation issue d'une éventuelle course de référence
+      - VDOT_utilisé (peut être vide)
+      - VDOT_initial (valeur issue du niveau déclaré)
+      - VDOT_moyen_LK (fallback si jamais initial absent)
+      - 🔥 Ton expérience (pour détecter Reprise)
 
-    Logique :
-      1) Si aucune valeur "VDOT_utilisé" → on applique la logique par niveau (SC_COACH_003)
-      2) Si une valeur existe mais aberrante (<10) → alerte qualité (SC_WARN_001)
-      3) Sinon → on valide (SC_COACH_003)
+    Sortie :
+      - etat ("OK" ou "KO")
+      - message_id (clé pour lookup dans 🗂️ Messages SmartCoach)
+      - vdot_final (float ou int)
     """
 
-    # Normalisation du nom de champ
-    # (permet d'accepter "VDOT utilisé" ou "VDOT_utilisé")
-    vdot_utilise = fields.get("VDOT_utilisé") or fields.get("VDOT utilisé")
-
+    experience = fields.get("🔥 Ton expérience")
+    vdot_utilise = fields.get("VDOT_utilisé")
     vdot_initial = fields.get("VDOT_initial")
     vdot_moyen = fields.get("VDOT_moyen_LK")
 
-    # Logs lisibles dans Render
     print("📥 DEBUG VDOT")
+    print("  → Expérience :", experience)
     print("  → VDOT_utilisé :", vdot_utilise)
     print("  → VDOT_initial :", vdot_initial)
-    print("  → VDOT_moyen_LK :", vdot_moyen)
+    print("  → VDOT_moyen :", vdot_moyen)
 
-    # --- RG B04-VDOT-02 ---
-    # Cas standard du scénario 1 :
-    # → Pas de chrono → pas de VDOT issu d’effort réel → on utilise le VDOT du niveau
+    # --- B04-VDOT-03 : Profil Reprise → Sécurisation démarrage
+    if experience in ["Reprise", "Retour après coupure", "Débutant"]:
+        vdot_final = vdot_initial or vdot_moyen
+        return "OK", "SC_COACH_003", vdot_final
+
+    # --- B04-VDOT-02 : Pas de chrono / pas de VDOT_utilisé → on prend VDOT_initial
     if vdot_utilise is None:
-        vdot_calcule = vdot_initial or vdot_moyen
-        return "OK", "SC_COACH_003", vdot_calcule
+        vdot_final = vdot_initial or vdot_moyen
+        return "OK", "SC_COACH_003", vdot_final
 
-    # --- Cohérence qualité ---
-    # Rare, mais si quelqu’un met une valeur absurde (<10 → marche lente)
+    # --- Cas rare : VDOT incohérent → on avertit
     if isinstance(vdot_utilise, (int, float)) and vdot_utilise < 10:
         return "KO", "SC_WARN_001", vdot_utilise
 
-    # --- Cas normal ---
-    # Le coureur a déjà un VDOT pertinent → on le garde
+    # --- Cas normal : tout est cohérent
     return "OK", "SC_COACH_003", vdot_utilise
-
 
 def verifier_jours(fields):
     """
