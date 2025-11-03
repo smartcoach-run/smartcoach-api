@@ -78,7 +78,7 @@ def generate_by_id():
         jours_final = int(jours_final)
     except:
         jours_final = 1
-    fields["📅 Jours_final"] = jours_final
+        fields["📅Nb_jours_final"] = jours_final
 
     # 5) Sélection des séances (robuste aux emojis/accents et aux types)
     seances_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{quote(SEANCES_TABLE_NAME)}"
