@@ -1,152 +1,141 @@
 from flask import Flask, request, jsonify
-import requests
+from pyairtable import Api
 import os
-from urllib.parse import quote
-
-from qualite.controle_rg import verifier_vdot, verifier_jours
 
 app = Flask(__name__)
 
-# === Airtable Configuration ===
-AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
-AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
-COUREURS_TABLE = os.getenv("AIRTABLE_TABLE_NAME", "🏃 Coureurs")
-VDOT_TABLE = os.getenv("AIRTABLE_VDOT_TABLE_NAME", "VDOT_reference")
-SEANCES_TABLE = os.getenv("AIRTABLE_SEANCES_TABLE_NAME", "📘 Séances types")
+AIRTABLE_KEY = os.environ.get("AIRTABLE_KEY")
+BASE_ID = os.environ.get("BASE_ID")
+
+api = Api(AIRTABLE_KEY)
+TABLE_COUR = api.table(BASE_ID, "🏃 Coureurs")
+TABLE_SEANCES = api.table(BASE_ID, "📘 Séances types")
 
 
-@app.route("/")
-def home():
-    return "✅ SmartCoach API is running"
+def verifier_jours(fields):
+    jours_dispo = fields.get("📅Nb_jours_dispo")
+    if jours_dispo is None:
+        return "OK", None, 1
+
+    jours_min = fields.get("Jours_min")
+    jours_max = fields.get("Jours_max")
+
+    if jours_min is None or jours_max is None:
+        return "OK", None, jours_dispo
+
+    try:
+        jours_dispo = int(jours_dispo)
+        jours_min = int(jours_min)
+        jours_max = int(jours_max)
+    except:
+        return "OK", None, jours_dispo
+
+    if jours_dispo < jours_min:
+        return "WARN", "SC_COACH_003", jours_min
+
+    if jours_dispo > jours_max:
+        return "WARN", "SC_COACH_004", jours_max
+
+    return "OK", "SC_COACH_002", jours_dispo
 
 
-@app.route("/generate_by_id", methods=["POST"])
+@app.post("/generate_by_id")
 def generate_by_id():
-    """
-    API principale :
-    - Input : { "id_airtable": "recXXXX" }
-    - Output : JSON (status, message_id, vdot, jours_final, séances[])
-    """
-    data = request.get_json()
-    record_id = data.get("id_airtable")
-
-    if not record_id:
-        return jsonify({"error": "Missing id_airtable"}), 400
-
-    headers = {"Authorization": f"Bearer {AIRTABLE_API_KEY}"}
-
-    # 1) Récupération fiche coureur
-    url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{quote(COUREURS_TABLE)}/{record_id}"
-    r = requests.get(url, headers=headers)
-    if r.status_code != 200:
-        return jsonify({"error": "Record not found"}), 404
-
-    record = r.json()
-    fields = record.get("fields", {})
-
-    # 2) Vérification / calcul du VDOT
-    etat_vdot, message_id, vdot_final = verifier_vdot(fields)
-    if etat_vdot == "KO":
-        # On ne génère pas de plan → RG bloquante
-        return jsonify({"status": "error", "message_id": message_id}), 400
-
-    # 3) Récupération du référentiel Niveaux (min/max jours)
-    ref = fields.get("📘 Référentiel Niveaux", [])
-    if isinstance(ref, list) and len(ref) > 0:
-        # Appel Airtable pour choper les champs Jours_min / Jours_max
-        ref_id = ref[0]
-        ref_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/📘 Référentiel Niveaux/{ref_id}"
-        r_ref = requests.get(ref_url, headers=headers)
-        if r_ref.status_code == 200:
-            ref_fields = r_ref.json().get("fields", {})
-            fields["Jours_min"] = ref_fields.get("Jours_min")
-            fields["Jours_max"] = ref_fields.get("Jours_max")
-
-    # 4) Vérification / ajustement des jours (RG B03)
-    etat_jours, message_jours, jours_final = verifier_jours(fields)
-    fields["📅Nb_jours_final_calcule"] = jours_final
-
-    # 5) Sélection des séances dans 📘 Séances types
-    seances_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{quote(SEANCES_TABLE)}"
-    r_seances = requests.get(seances_url, headers=headers)
-    if r_seances.status_code != 200:
-        return jsonify({"status": "error", "message": "Cannot fetch Séances types"}), 500
-
-    data_seances = r_seances.json()
-    seances_records = data_seances.get("records", [])
+    data = request.json
+    record_id = data.get("id")
+    rec = TABLE_COUR.get(record_id)
+    fields = rec["fields"]
 
     niveau = fields.get("Niveau_normalisé")
     objectif = fields.get("Objectif_normalisé")
-    vdot = float(vdot_final)
+    vdot = fields.get("VDOT_utilisé")
 
-    seances_filtrees = []
-    for s in seances_records:
+    # Vérification / Ajustement jours
+    _, _, jours_final = verifier_jours(fields)
+
+    # 🔥 NOUVEAU → filtre Phase cohérente avec début de plan
+    PHASES_AUTORISEES = ["Prépa générale", "Progression"]
+
+    # Récupérer les séances avec filtrage multi-critères
+    all_seances = TABLE_SEANCES.all()
+
+    seances_valides = []
+    for s in all_seances:
         f = s.get("fields", {})
 
         if f.get("Mode") != "Running":
             continue
 
+        # Phase cohérente avec début de plan
+        if f.get("Phase") not in PHASES_AUTORISEES:
+            continue
+
+        # Niveau compatible
         niveaux = f.get("Niveau", [])
         if isinstance(niveaux, str):
             niveaux = [niveaux]
+
         if niveau not in niveaux:
             continue
 
+        # Objectif compatible
         objectifs = f.get("Objectif", [])
         if isinstance(objectifs, str):
             objectifs = [objectifs]
+
         if objectif not in objectifs:
             continue
 
-        try:
-            vmin = float(f.get("VDOT_min")) if f.get("VDOT_min") is not None else None
-            vmax = float(f.get("VDOT_max")) if f.get("VDOT_max") is not None else None
-        except:
-            continue
+        # Contrôle VDOT
+        vmin = f.get("VDOT_min")
+        vmax = f.get("VDOT_max")
+        if vmin is not None and vmax is not None and vdot is not None:
+            try:
+                vdot_float = float(vdot)
+                if not (float(vmin) <= vdot_float <= float(vmax)):
+                    continue
+            except:
+                pass
 
-        if vmin is not None and vmax is not None:
-            if not (vmin <= vdot <= vmax):
-                continue
-
-        seances_filtrees.append(s)
-
-    # Tri stable : par durée
-    def safe_float(x):
-        try:
-            return float(x)
-        except:
-            return 9999
-
-    seances_filtrees = sorted(seances_filtrees, key=lambda s: safe_float(s.get("fields", {}).get("Durée (min)")))
-
-    # Sélection finale : nb = jours_final
-    nb = max(1, int(jours_final))
-    seances_selection = seances_filtrees[:nb]
-
-    # Formatage sortie
-    seances = []
-    for s in seances_selection:
-        f = s.get("fields", {})
-        seances.append({
-            "nom": f.get("Nom séance"),
+        seances_valides.append({
+            "id": s["id"],
+            "nom": f.get("NomSéance"),
             "duree_min": f.get("Durée (min)"),
-            "type": f.get("Type_séance", f.get("Type", None)),
-            "phase": f.get("Phase", None),
+            "type": f.get("Type"),
+            "phase": f.get("Phase"),
             "conseil": f.get("🧠 Message_coach (modèle)"),
-            "id": s.get("id"),
+            "charge": f.get("Charge", 2)  # fallback safe
         })
 
-    # 6) Retour API standardisé
+    # Aucun résultat → message admin + retour
+    if len(seances_valides) == 0:
+        return jsonify({
+            "status": "error",
+            "message_id": "SC_COACH_012",
+            "message": "Aucune séance adaptée trouvée. Base à compléter.",
+            "seances": []
+        })
+
+    # Sélectionner les meilleures séances (tri progressivité)
+    seances_valides = sorted(seances_valides, key=lambda x: (x["charge"], x["duree_min"]))
+
+    # On garde exactement le nombre de séances nécessaires
+    seances_finales = seances_valides[:jours_final]
+
     return jsonify({
         "status": "ok",
-        "message_id": message_id,
-        "vdot": vdot_final,
+        "message_id": "SC_COACH_021",
+        "message": "✅ Sélection optimisée selon ton niveau & ton objectif.",
+        "seances": seances_finales,
         "jours_final": jours_final,
-        "fields": fields,
-        "seances": seances
-    }), 200
+        "vdot": vdot
+    })
+
+
+@app.get("/")
+def home():
+    return "SmartCoach API active ✅"
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=5000)
