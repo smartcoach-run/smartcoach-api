@@ -9,9 +9,9 @@ AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
 AIRTABLE_TABLE_NAME = os.getenv("AIRTABLE_TABLE_NAME")
 
-# Nom de la table et du champ pour le référentiel VDOT
+# Paramètres référentiel VDOT
 AIRTABLE_VDOT_TABLE_NAME = os.getenv("AIRTABLE_VDOT_TABLE_NAME", "VDOT_reference")
-VDOT_LINK_FIELD_NAME = os.getenv("VDOT_LINK_FIELD_NAME", "📐 VDOT_reference")  # champ Lien sur la fiche coureur
+VDOT_LINK_FIELD_NAME = os.getenv("VDOT_LINK_FIELD_NAME", "📐 VDOT_reference")  # lien vers table VDOT
 VDOT_FIELD_NAME = os.getenv("VDOT_FIELD_NAME", "VDOT")  # champ numérique dans la table référentiel
 
 @app.route("/")
@@ -26,9 +26,10 @@ def generate_by_id():
     if not record_id:
         return jsonify({"error": "Missing id_airtable"}), 400
 
-    # 1) Récupération de la fiche coureur
-    rec_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}/{record_id}"
     headers = {"Authorization": f"Bearer {AIRTABLE_API_KEY}"}
+
+    # 🔹 1) Récupération fiche coureur
+    rec_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}/{record_id}"
     r = requests.get(rec_url, headers=headers)
 
     if r.status_code != 200:
@@ -37,7 +38,7 @@ def generate_by_id():
     record = r.json()
     fields = record.get("fields", {})
 
-    # 2) Si pas de VDOT utilisé sur la fiche, tenter de le lire via la table liée 📐 VDOT_reference
+    # 🔹 2) Si VDOT manquant → on tente de l’extraire de la table référentielle
     vdot_utilise = fields.get("VDOT utilisé")
     if vdot_utilise is None:
         linked_ids = fields.get(VDOT_LINK_FIELD_NAME, [])
@@ -45,26 +46,29 @@ def generate_by_id():
             linked_id = linked_ids[0]
             vdot_ref_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_VDOT_TABLE_NAME}/{linked_id}"
             r_ref = requests.get(vdot_ref_url, headers=headers)
+
             if r_ref.status_code == 200:
                 ref_fields = r_ref.json().get("fields", {})
                 vdot_from_ref = ref_fields.get(VDOT_FIELD_NAME)
                 if vdot_from_ref is not None:
-                    # Injecte le VDOT dans les fields pour la suite (source: référentiel)
                     fields["VDOT utilisé"] = vdot_from_ref
-                    vdot_utilise = vdot_from_ref
 
-    # 3) Appel du contrôle RG VDOT (désormais avec VDOT injecté si référentiel présent)
-    etat_vdot, message_vdot, vdot_final = verifier_vdot(fields)
-    print("VDOT:", etat_vdot, message_vdot, vdot_final)
+    # 🔹 3) Contrôle des règles de gestion
+    etat_vdot, message_id, vdot_final = verifier_vdot(fields)
+    print("VDOT:", etat_vdot, message_id, vdot_final)
 
     if etat_vdot == "KO":
-        return jsonify({"erreur": message_vdot}), 400
+        return jsonify({
+            "status": "error",
+            "message_id": message_id
+        }), 400
 
-    # 4) Réponse OK avec les champs et le VDOT final retenu
+    # 🔹 4) Retour standardisé → exploitable par Make directement
     return jsonify({
+        "status": "ok",
         "fields": fields,
         "vdot": vdot_final,
-        "message": message_vdot
+        "message_id": message_id  # 👈 clé pour lookup dans 🗂️ Messages SmartCoach
     }), 200
 
 if __name__ == "__main__":
