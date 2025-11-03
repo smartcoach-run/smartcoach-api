@@ -2,25 +2,17 @@ from flask import Flask, request, jsonify
 import requests
 import os
 from urllib.parse import quote
+
 from qualite.controle_rg import verifier_vdot, verifier_jours
 
 app = Flask(__name__)
 
+# === Airtable Configuration ===
 AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
-AIRTABLE_TABLE_NAME = os.getenv("AIRTABLE_TABLE_NAME")
-
-# Référentiel VDOT
-AIRTABLE_VDOT_TABLE_NAME = os.getenv("AIRTABLE_VDOT_TABLE_NAME", "VDOT_reference")
-VDOT_LINK_FIELD_NAME = os.getenv("VDOT_LINK_FIELD_NAME", "📐 VDOT_reference")
-VDOT_FIELD_NAME = os.getenv("VDOT_FIELD_NAME", "VDOT")
-
-# Référentiel niveaux / jours min-max
-REF_NIVEAUX_TABLE = os.getenv("AIRTABLE_REF_NIVEAUX_TABLE", "📘 Référentiel Niveaux")
-REF_NIVEAUX_LINK = os.getenv("AIRTABLE_REF_NIVEAUX_LINK", "📘 Référentiel Niveaux")
-
-# Table des séances
-SEANCES_TABLE_NAME = os.getenv("AIRTABLE_SEANCES_TABLE_NAME", "🏋️ Séances")
+COUREURS_TABLE = os.getenv("AIRTABLE_TABLE_NAME", "🏃 Coureurs")
+VDOT_TABLE = os.getenv("AIRTABLE_VDOT_TABLE_NAME", "VDOT_reference")
+SEANCES_TABLE = os.getenv("AIRTABLE_SEANCES_TABLE_NAME", "📘 Séances types")
 
 
 @app.route("/")
@@ -30,6 +22,11 @@ def home():
 
 @app.route("/generate_by_id", methods=["POST"])
 def generate_by_id():
+    """
+    API principale :
+    - Input : { "id_airtable": "recXXXX" }
+    - Output : JSON (status, message_id, vdot, jours_final, séances[])
+    """
     data = request.get_json()
     record_id = data.get("id_airtable")
 
@@ -39,97 +36,107 @@ def generate_by_id():
     headers = {"Authorization": f"Bearer {AIRTABLE_API_KEY}"}
 
     # 1) Récupération fiche coureur
-    rec_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}/{record_id}"
-    r = requests.get(rec_url, headers=headers)
-
+    url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{quote(COUREURS_TABLE)}/{record_id}"
+    r = requests.get(url, headers=headers)
     if r.status_code != 200:
-        return jsonify({"error": "Airtable record not found"}), 404
+        return jsonify({"error": "Record not found"}), 404
 
     record = r.json()
     fields = record.get("fields", {})
 
-    # 2) Récupération VDOT depuis lien si besoin
-    vdot_utilise = fields.get("VDOT_utilisé")
-    if vdot_utilise is None:
-        linked_ids = fields.get(VDOT_LINK_FIELD_NAME, [])
-        if isinstance(linked_ids, list) and len(linked_ids) > 0:
-            linked_id = linked_ids[0]
-            ref_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_VDOT_TABLE_NAME}/{linked_id}"
-            r_ref = requests.get(ref_url, headers=headers)
-            if r_ref.status_code == 200:
-                ref_fields = r_ref.json().get("fields", {})
-                v = ref_fields.get(VDOT_FIELD_NAME)
-                if v is not None:
-                    fields["VDOT_utilisé"] = v
-
-    # 3) Vérification RG VDOT
+    # 2) Vérification / calcul du VDOT
     etat_vdot, message_id, vdot_final = verifier_vdot(fields)
     if etat_vdot == "KO":
+        # On ne génère pas de plan → RG bloquante
         return jsonify({"status": "error", "message_id": message_id}), 400
 
-    # 4) Récupération référentiel jours min/max
-    ref_ids = fields.get(REF_NIVEAUX_LINK, [])
-    jours_min = None
-    jours_max = None
-
-    if isinstance(ref_ids, list) and len(ref_ids) > 0:
-        ref_id = ref_ids[0]
-        ref_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{quote(REF_NIVEAUX_TABLE)}/{ref_id}"
+    # 3) Récupération du référentiel Niveaux (min/max jours)
+    ref = fields.get("📘 Référentiel Niveaux", [])
+    if isinstance(ref, list) and len(ref) > 0:
+        # Appel Airtable pour choper les champs Jours_min / Jours_max
+        ref_id = ref[0]
+        ref_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/📘 Référentiel Niveaux/{ref_id}"
         r_ref = requests.get(ref_url, headers=headers)
         if r_ref.status_code == 200:
             ref_fields = r_ref.json().get("fields", {})
-            jours_min = ref_fields.get("Jours_min")
-            jours_max = ref_fields.get("Jours_max")
+            fields["Jours_min"] = ref_fields.get("Jours_min")
+            fields["Jours_max"] = ref_fields.get("Jours_max")
 
-    # 5) Calcul jours_final via RG
+    # 4) Vérification / ajustement des jours (RG B03)
     etat_jours, message_jours, jours_final = verifier_jours(fields)
-
-    try:
-        jours_final = int(jours_final)
-    except:
-        jours_final = 1
-
     fields["📅Nb_jours_final_calcule"] = jours_final
 
-    # 6) Récupération table Séances (robuste)
-    seances_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{quote(SEANCES_TABLE_NAME)}"
+    # 5) Sélection des séances dans 📘 Séances types
+    seances_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{quote(SEANCES_TABLE)}"
     r_seances = requests.get(seances_url, headers=headers)
     if r_seances.status_code != 200:
-        return jsonify({"status": "error", "message": "Cannot fetch Séances table"}), 500
+        return jsonify({"status": "error", "message": "Cannot fetch Séances types"}), 500
 
-    seances_records = r_seances.json().get("records", [])
-    seances_filtered = []
+    data_seances = r_seances.json()
+    seances_records = data_seances.get("records", [])
 
-    # ✅ Filtrage propre VDOT_min / max
+    niveau = fields.get("Niveau_normalisé")
+    objectif = fields.get("Objectif_normalisé")
+    vdot = float(vdot_final)
+
+    seances_filtrees = []
     for s in seances_records:
         f = s.get("fields", {})
-        vmin = f.get("VDOT_min")
-        vmax = f.get("VDOT_max")
 
-        if vmin is None or vmax is None:
+        if f.get("Mode") != "Running":
+            continue
+
+        niveaux = f.get("Niveau", [])
+        if isinstance(niveaux, str):
+            niveaux = [niveaux]
+        if niveau not in niveaux:
+            continue
+
+        objectifs = f.get("Objectif", [])
+        if isinstance(objectifs, str):
+            objectifs = [objectifs]
+        if objectif not in objectifs:
             continue
 
         try:
-            vmin = float(vmin)
-            vmax = float(vmax)
+            vmin = float(f.get("VDOT_min")) if f.get("VDOT_min") is not None else None
+            vmax = float(f.get("VDOT_max")) if f.get("VDOT_max") is not None else None
         except:
             continue
 
-        if vmin <= float(vdot_final) <= vmax:
-            seances_filtered.append(s)
+        if vmin is not None and vmax is not None:
+            if not (vmin <= vdot <= vmax):
+                continue
 
-    # 7) Sélection selon jours_final
-    seances_selection = seances_filtered[:max(jours_final, 1)]
-    seances = [{
-        "nom": f.get("Nom_séance"),
-        "structure": f.get("Structure_séance"),
-        "conseil": f.get("Conseil_coach"),
-        "duree": f.get("Durée_totale_min"),
-        "type": f.get("Type_séance"),
-        "id": s.get("id")
-    } for s in seances_selection for f in [s.get("fields", {})]]
+        seances_filtrees.append(s)
 
-    # 8) Retour final standardisé
+    # Tri stable : par durée
+    def safe_float(x):
+        try:
+            return float(x)
+        except:
+            return 9999
+
+    seances_filtrees = sorted(seances_filtrees, key=lambda s: safe_float(s.get("fields", {}).get("Durée (min)")))
+
+    # Sélection finale : nb = jours_final
+    nb = max(1, int(jours_final))
+    seances_selection = seances_filtrees[:nb]
+
+    # Formatage sortie
+    seances = []
+    for s in seances_selection:
+        f = s.get("fields", {})
+        seances.append({
+            "nom": f.get("Nom séance"),
+            "duree_min": f.get("Durée (min)"),
+            "type": f.get("Type_séance", f.get("Type", None)),
+            "phase": f.get("Phase", None),
+            "conseil": f.get("🧠 Message_coach (modèle)"),
+            "id": s.get("id"),
+        })
+
+    # 6) Retour API standardisé
     return jsonify({
         "status": "ok",
         "message_id": message_id,
