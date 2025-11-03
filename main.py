@@ -4,6 +4,7 @@ import os
 
 app = Flask(__name__)
 
+# --- ENV VARIABLES ---
 AIRTABLE_KEY = os.environ.get("AIRTABLE_KEY")
 BASE_ID = os.environ.get("BASE_ID")
 
@@ -16,6 +17,7 @@ TABLE_COUR = api.table(BASE_ID, TABLE_COUR_NAME)
 TABLE_SEANCES = api.table(BASE_ID, TABLE_SEANCES_NAME)
 
 
+# --- FONCTIONS ---
 def verifier_jours(fields):
     jours_dispo = fields.get("📅Nb_jours_dispo")
     if jours_dispo is None:
@@ -43,13 +45,32 @@ def verifier_jours(fields):
     return "OK", "SC_COACH_002", jours_dispo
 
 
+# --- ENDPOINT ---
 @app.post("/generate_by_id")
 def generate_by_id():
-    data = request.json
-    record_id = data.get("id")
+    data = request.json or {}
 
+    # ✅ Correction : récupération robuste du record_id
+    record_id = (
+        data.get("id")
+        or data.get("record_id")
+        or data.get("recordID")
+        or data.get("record")
+    )
+
+    if not record_id:
+        return jsonify({
+            "status": "error",
+            "message_id": "SC_API_001",
+            "message": "⚠️ Aucun ID de coureur reçu dans la requête.",
+            "expected_format": {
+                "id": "recXXXXXXXXXXXXXX"
+            }
+        }), 400
+
+    # ✅ Lecture Airtable
     rec = TABLE_COUR.get(record_id)
-    fields = rec["fields"]
+    fields = rec.get("fields", {})
 
     niveau = fields.get("Niveau_normalisé")
     objectif = fields.get("Objectif_normalisé")
