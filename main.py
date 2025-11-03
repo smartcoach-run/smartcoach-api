@@ -1,21 +1,15 @@
 from flask import Flask, request, jsonify
 import requests
 import os
-
-# Import des contrôles RG
 from qualite.controle_rg import verifier_vdot, verifier_jours
-
-# (placeholder) Import futur génération séances
-# from generation.seances import generer_seances
 
 app = Flask(__name__)
 
-# --- Configuration Airtable ---
 AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
 AIRTABLE_TABLE_NAME = os.getenv("AIRTABLE_TABLE_NAME")
 
-# --- Référentiel VDOT ---
+# Paramètres référentiel VDOT
 AIRTABLE_VDOT_TABLE_NAME = os.getenv("AIRTABLE_VDOT_TABLE_NAME", "VDOT_reference")
 VDOT_LINK_FIELD_NAME = os.getenv("VDOT_LINK_FIELD_NAME", "📐 VDOT_reference")
 VDOT_FIELD_NAME = os.getenv("VDOT_FIELD_NAME", "VDOT")
@@ -28,10 +22,6 @@ def home():
 
 @app.route("/generate_by_id", methods=["POST"])
 def generate_by_id():
-
-    # ---------------------------------------------------
-    # 1) Lecture de l’ID envoyé depuis Make ou Postman
-    # ---------------------------------------------------
     data = request.get_json()
     record_id = data.get("id_airtable")
 
@@ -40,9 +30,7 @@ def generate_by_id():
 
     headers = {"Authorization": f"Bearer {AIRTABLE_API_KEY}"}
 
-    # ---------------------------------------------------
-    # 2) Récupération de la fiche coureur
-    # ---------------------------------------------------
+    # 1) Récupération fiche coureur
     rec_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}/{record_id}"
     r = requests.get(rec_url, headers=headers)
 
@@ -52,45 +40,46 @@ def generate_by_id():
     record = r.json()
     fields = record.get("fields", {})
 
-    # ---------------------------------------------------
-    # 3) Si VDOT utilisé absent → récupérer via référentiel
-    # ---------------------------------------------------
+    # 2) Récupération VDOT (fallback via référentiel si besoin)
     vdot_utilise = fields.get("VDOT_utilisé")
-
     if vdot_utilise is None:
         linked_ids = fields.get(VDOT_LINK_FIELD_NAME, [])
-
         if isinstance(linked_ids, list) and len(linked_ids) > 0:
             linked_id = linked_ids[0]
             vdot_ref_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_VDOT_TABLE_NAME}/{linked_id}"
             r_ref = requests.get(vdot_ref_url, headers=headers)
-
             if r_ref.status_code == 200:
                 ref_fields = r_ref.json().get("fields", {})
                 vdot_from_ref = ref_fields.get(VDOT_FIELD_NAME)
-
                 if vdot_from_ref is not None:
                     fields["VDOT_utilisé"] = vdot_from_ref
 
-    # ---------------------------------------------------
-    # 4)Sélection des séances
-    # ---------------------------------------------------
+    # 3) Vérification RG VDOT
+    etat_vdot, message_id, vdot_final = verifier_vdot(fields)
+    print("VDOT:", etat_vdot, message_id, vdot_final)
 
-    jours_final = fields.get("📅 Jours_final")
-    vdot = vdot_final
+    if etat_vdot == "KO":
+        return jsonify({
+            "status": "error",
+            "message_id": message_id
+        }), 400
 
-    # Récupération des séances dans Airtable
+    # 4) Vérification / ajustement des jours d'entraînement
+    etat_jours, message_jours, jours_final = verifier_jours(fields)
+    print("JOURS:", etat_jours, message_jours, jours_final)
+
+    fields["📅 Jours_final"] = jours_final
+
+    # 5) Sélection des séances
     seances_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/Séances"
     params = {
-        "filterByFormula": f"AND({vdot} >= {{VDOT_min}}, {vdot} <= {{VDOT_max}}, LOWER({{Objectif_niveau}}) = 'débutant')"
+        "filterByFormula": f"AND({vdot_final} >= {{VDOT_min}}, {vdot_final} <= {{VDOT_max}})"
     }
     r_seances = requests.get(seances_url, headers=headers, params=params)
     seances_records = r_seances.json().get("records", [])
 
-    # On prend strictement le nombre de séances = jours_final
     seances_selection = seances_records[:jours_final]
 
-    # On formate la sortie
     seances = []
     for s in seances_selection:
         f = s.get("fields", {})
@@ -103,33 +92,7 @@ def generate_by_id():
             "id": s.get("id")
         })
 
-
-    # ---------------------------------------------------
-    # 5) Contrôle RG : Jours d'entraînement
-    # ---------------------------------------------------
-    etat_jours, message_id_jours, jours_final = verifier_jours(fields)
-
-    print("DEBUG - JOURS:", etat_jours, message_id_jours, jours_final)
-
-    # Injection du résultat dans les champs → utilisé pour la suite
-    fields["📅 Jours_final"] = jours_final
-
-    # ---------------------------------------------------
-    # 6) (à venir) Génération des séances
-    # ---------------------------------------------------
-    # etat_seances, message_id_seances, seances = generer_seances(fields, vdot_final, jours_final)
-    #
-    # if etat_seances == "KO":
-    #     return jsonify({
-    #         "status": "error",
-    #         "message_id": message_id_seances
-    #     }), 400
-    #
-    # fields["Séances_générées"] = seances
-
-    # ---------------------------------------------------
-    # 7) Retour standardisé → exploitable par Make
-    # ---------------------------------------------------
+    # 6) Retour API standardisé (pour Make)
     return jsonify({
         "status": "ok",
         "fields": fields,
