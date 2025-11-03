@@ -2,6 +2,15 @@ from flask import Flask, request, jsonify
 import requests
 import os
 from qualite.controle_rg import verifier_vdot
+from qualite.controle_rg import verifier_jours
+
+etat_jours, message_jours, jours_final = verifier_jours(fields)
+
+# Log console
+print("JOURS:", etat_jours, message_jours, jours_final)
+
+# Mise à jour du champ utilisé pour la suite
+fields["📅 Jours_final"] = jours_final
 
 app = Flask(__name__)
 
@@ -51,7 +60,7 @@ def generate_by_id():
                 ref_fields = r_ref.json().get("fields", {})
                 vdot_from_ref = ref_fields.get(VDOT_FIELD_NAME)
                 if vdot_from_ref is not None:
-                    fields["VDOT_utilisé"] = vdot_from_ref
+                    fields["VDOT_utilisé"] = vdot_from_ref  # 👈 cohérence garantie
 
     # 🔹 3) Contrôle des règles de gestion
     etat_vdot, message_id, vdot_final = verifier_vdot(fields)
