@@ -10,6 +10,8 @@ BASE_ID = os.environ.get("BASE_ID")
 
 # Connexion Airtable
 api = Api(AIRTABLE_KEY)
+print(">>> DEBUG AIRTABLE_KEY =", AIRTABLE_KEY)
+print(">>> DEBUG BASE_ID =", BASE_ID)
 
 # Tables (➡️ Utiliser EXACTEMENT les noms affichés dans Airtable)
 TABLE_COUR = api.table(BASE_ID, "Coureurs")       # ou "🏃 Coureurs" si c'est le nom affiché
