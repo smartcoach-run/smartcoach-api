@@ -2,9 +2,7 @@ from flask import Flask, request, jsonify
 import requests
 import os
 from urllib.parse import quote
-
-# Import des règles de gestion
-from qualite.controle_rg import verifier_vdot, verifier_jours
+from qualite.controle_rg import verifier_vdot
 
 app = Flask(__name__)
 
@@ -12,13 +10,22 @@ AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
 AIRTABLE_BASE_ID = os.getenv("AIRTABLE_BASE_ID")
 AIRTABLE_TABLE_NAME = os.getenv("AIRTABLE_TABLE_NAME")
 
-# Paramètres référentiel VDOT
+# Référentiel VDOT
 AIRTABLE_VDOT_TABLE_NAME = os.getenv("AIRTABLE_VDOT_TABLE_NAME", "VDOT_reference")
 VDOT_LINK_FIELD_NAME = os.getenv("VDOT_LINK_FIELD_NAME", "📐 VDOT_reference")
 VDOT_FIELD_NAME = os.getenv("VDOT_FIELD_NAME", "VDOT")
 
-# Paramètres table Séances
-SEANCES_TABLE_NAME = os.getenv("AIRTABLE_SEANCES_TABLE_NAME", "🏋️ Séances")
+# Table des séances
+AIRTABLE_SEANCES_TABLE_NAME = os.getenv("AIRTABLE_SEANCES_TABLE_NAME", "🏋️ Séances")
+
+
+def airtable_update(record_id, fields):
+    url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_TABLE_NAME}/{record_id}"
+    headers = {
+        "Authorization": f"Bearer {AIRTABLE_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    requests.patch(url, headers=headers, json={"fields": fields})
 
 
 @app.route("/")
@@ -46,7 +53,7 @@ def generate_by_id():
     record = r.json()
     fields = record.get("fields", {})
 
-    # 2) Récupération VDOT (fallback via référentiel si lien)
+    # 2) VDOT fallback via référentiel si besoin
     vdot_utilise = fields.get("VDOT_utilisé")
     if vdot_utilise is None:
         linked_ids = fields.get(VDOT_LINK_FIELD_NAME, [])
@@ -54,6 +61,7 @@ def generate_by_id():
             linked_id = linked_ids[0]
             vdot_ref_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{AIRTABLE_VDOT_TABLE_NAME}/{linked_id}"
             r_ref = requests.get(vdot_ref_url, headers=headers)
+
             if r_ref.status_code == 200:
                 ref_fields = r_ref.json().get("fields", {})
                 vdot_from_ref = ref_fields.get(VDOT_FIELD_NAME)
@@ -65,70 +73,74 @@ def generate_by_id():
     print("VDOT:", etat_vdot, message_id, vdot_final)
 
     if etat_vdot == "KO":
-        return jsonify({
-            "status": "error",
-            "message_id": message_id
-        }), 400
+        return jsonify({"status": "error", "message_id": message_id}), 400
 
-    # 4) Vérification / ajustement des jours d'entraînement
-    etat_jours, message_jours, jours_final = verifier_jours(fields)
-    print("JOURS:", etat_jours, message_jours, jours_final)
+    # 4) RG Jours (B03-COH)
+    nb_jours_dispo = fields.get("📅Nb_jours_dispo")
+    ref = fields.get("📘 Référentiel Niveaux", [])
 
-    try:
-        jours_final = int(jours_final)
-    except:
-        jours_final = 1
-        fields["📅Nb_jours_final"] = jours_final
+    jours_min = ref[0].get("Jours_min") if ref else None
+    jours_max = ref[0].get("Jours_max") if ref else None
 
-    # 5) Sélection des séances (robuste aux emojis/accents et aux types)
-    seances_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{quote(SEANCES_TABLE_NAME)}"
+    if nb_jours_dispo is None or jours_min is None or jours_max is None:
+        jours_final = nb_jours_dispo or 1
+        message_jours = "SC_COACH_001"
+    else:
+        if nb_jours_dispo < jours_min:
+            jours_final = jours_min
+            message_jours = "SC_COACH_002"
+        elif nb_jours_dispo > jours_max:
+            jours_final = jours_max
+            message_jours = "SC_COACH_002"
+        else:
+            jours_final = nb_jours_dispo
+            message_jours = "SC_COACH_001"
+
+    # Écriture du résultat des RG dans Airtable
+    airtable_update(record_id, {"📅Nb_jours_final_calcule": jours_final})
+
+    # 5) Sélection des séances
+    seances_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{quote(AIRTABLE_SEANCES_TABLE_NAME)}"
     r_seances = requests.get(seances_url, headers=headers)
 
     if r_seances.status_code != 200:
-        print("ERROR FETCH SEANCES:", r_seances.status_code, r_seances.text)
         return jsonify({"status": "error", "message": "Cannot fetch Séances table"}), 500
 
-    data_seances = r_seances.json()
-    seances_records = data_seances.get("records", [])
-
-    # Filtrage Python
+    data_seances = r_seances.json().get("records", [])
     seances_filtered = []
-    for s in seances_records:
+
+    for s in data_seances:
         f = s.get("fields", {})
         vmin = f.get("VDOT_min")
         vmax = f.get("VDOT_max")
+
         try:
-            vmin = float(vmin) if vmin is not None else None
-            vmax = float(vmax) if vmax is not None else None
+            if vmin is not None: vmin = float(vmin)
+            if vmax is not None: vmax = float(vmax)
         except:
             continue
-        if vmin is not None and vmax is not None and vmin <= float(vdot_final) <= vmax:
+
+        if vmin <= float(vdot_final) <= vmax:
             seances_filtered.append(s)
 
-    # Sélection du volume exact (au moins 1 séance)
-    seances_selection = seances_filtered[:max(jours_final, 1)]
+    seances_selected = seances_filtered[:max(int(jours_final), 1)]
+    seances = [{
+        "nom": s["fields"].get("Nom_séance"),
+        "structure": s["fields"].get("Structure_séance"),
+        "conseil": s["fields"].get("Conseil_coach"),
+        "duree": s["fields"].get("Durée_totale_min"),
+        "type": s["fields"].get("Type_séance"),
+        "id": s.get("id")
+    } for s in seances_selected]
 
-    # Formatage standardisé pour Make
-    seances = []
-    for s in seances_selection:
-        f = s.get("fields", {})
-        seances.append({
-            "id": s.get("id"),
-            "nom": f.get("Nom_séance"),
-            "structure": f.get("Structure_séance"),
-            "conseil": f.get("Conseil_coach"),
-            "duree": f.get("Durée_totale_min"),
-            "type": f.get("Type_séance")
-        })
-
-    # 6) Retour API propre
+    # 6) Retour standardisé
     return jsonify({
         "status": "ok",
-        "fields": fields,
+        "message_id": message_id,
         "vdot": vdot_final,
         "jours_final": jours_final,
         "seances": seances,
-        "message_id": message_id
+        "fields": fields
     }), 200
 
 
