@@ -1,4 +1,4 @@
 flask
-airtable-python-wrapper
+pyairtable==2.3.7
 python-dotenv
-pyairtable==1.6.1
+gunicorn
