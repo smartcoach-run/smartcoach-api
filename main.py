@@ -7,17 +7,17 @@ app = Flask(__name__)
 # --- ENV VARIABLES ---
 AIRTABLE_KEY = os.environ.get("AIRTABLE_KEY")
 BASE_ID = os.environ.get("BASE_ID")
+TABLE_COUR_NAME = os.environ.get("TABLE_COUR")             # ex: "🏃 Coureurs"
+TABLE_SEANCES_NAME = os.environ.get("TABLE_SEANCES")       # ex: "📘 Séances types"
 
-TABLE_COUR_NAME = os.environ.get("TABLE_COUR")
-TABLE_SEANCES_NAME = os.environ.get("TABLE_SEANCES")
+if not AIRTABLE_KEY or not BASE_ID or not TABLE_COUR_NAME or not TABLE_SEANCES_NAME:
+    raise Exception("❌ Variables d'environnement manquantes. Vérifie Render.")
 
 api = Api(AIRTABLE_KEY)
-
 TABLE_COUR = api.table(BASE_ID, TABLE_COUR_NAME)
 TABLE_SEANCES = api.table(BASE_ID, TABLE_SEANCES_NAME)
 
 
-# --- FONCTIONS ---
 def verifier_jours(fields):
     jours_dispo = fields.get("📅Nb_jours_dispo")
     if jours_dispo is None:
@@ -26,13 +26,10 @@ def verifier_jours(fields):
     jours_min = fields.get("Jours_min")
     jours_max = fields.get("Jours_max")
 
-    if jours_min is None or jours_max is None:
-        return "OK", None, jours_dispo
-
     try:
         jours_dispo = int(jours_dispo)
-        jours_min = int(jours_min)
-        jours_max = int(jours_max)
+        jours_min = int(jours_min) if jours_min else jours_dispo
+        jours_max = int(jours_max) if jours_max else jours_dispo
     except:
         return "OK", None, jours_dispo
 
@@ -45,30 +42,21 @@ def verifier_jours(fields):
     return "OK", "SC_COACH_002", jours_dispo
 
 
-# --- ENDPOINT ---
 @app.post("/generate_by_id")
 def generate_by_id():
-    data = request.json or {}
+    data = request.json
 
-    # ✅ Correction : récupération robuste du record_id
-    record_id = (
-        data.get("id")
-        or data.get("record_id")
-        or data.get("recordID")
-        or data.get("record")
-    )
-
+    # --- VALIDATION INPUT ---
+    record_id = data.get("id")
     if not record_id:
         return jsonify({
             "status": "error",
-            "message_id": "SC_API_001",
             "message": "⚠️ Aucun ID de coureur reçu dans la requête.",
-            "expected_format": {
-                "id": "recXXXXXXXXXXXXXX"
-            }
-        }), 400
+            "message_id": "SC_API_001",
+            "expected_format": {"id": "recXXXXXXXXXXXXXX"}
+        })
 
-    # ✅ Lecture Airtable
+    # --- RÉCUP COUREUR ---
     rec = TABLE_COUR.get(record_id)
     fields = rec.get("fields", {})
 
@@ -78,52 +66,59 @@ def generate_by_id():
 
     _, _, jours_final = verifier_jours(fields)
 
+    # --- PHASES DÉBUT DE PLAN ---
     PHASES_AUTORISEES = ["Prépa générale", "Progression"]
 
+    # --- FILTRAGE DES SÉANCES ---
     all_seances = TABLE_SEANCES.all()
     seances_valides = []
 
     for s in all_seances:
         f = s.get("fields", {})
 
+        # Mode Running uniquement
         if f.get("Mode") != "Running":
             continue
 
+        # Phase cohérente
         if f.get("Phase") not in PHASES_AUTORISEES:
             continue
 
+        # Niveau compatible
         niveaux = f.get("Niveau", [])
         if isinstance(niveaux, str):
             niveaux = [niveaux]
         if niveau not in niveaux:
             continue
 
+        # Objectif compatible
         objectifs = f.get("Objectif", [])
         if isinstance(objectifs, str):
             objectifs = [objectifs]
         if objectif not in objectifs:
             continue
 
+        # Filtre VDOT
         vmin = f.get("VDOT_min")
         vmax = f.get("VDOT_max")
-        if vmin and vmax and vdot:
-            try:
-                vdot_f = float(vdot)
-                if not (float(vmin) <= vdot_f <= float(vmax)):
+        try:
+            if vmin is not None and vmax is not None and vdot is not None:
+                if not (float(vmin) <= float(vdot) <= float(vmax)):
                     continue
-            except:
-                pass
+        except:
+            pass
 
         seances_valides.append({
             "id": s["id"],
-            "nom": f.get("NomSéance"),
+            "nom": f.get("Nom séance"),
             "duree_min": f.get("Durée (min)"),
-            "type": f.get("Type"),
+            "type": f.get("Type séance"),
             "phase": f.get("Phase"),
             "conseil": f.get("🧠 Message_coach (modèle)"),
             "charge": f.get("Charge", 2)
         })
 
+    # Aucun match trouvé
     if len(seances_valides) == 0:
         return jsonify({
             "status": "error",
@@ -132,7 +127,10 @@ def generate_by_id():
             "seances": []
         })
 
+    # Tri → progressivité
     seances_valides = sorted(seances_valides, key=lambda x: (x["charge"], x["duree_min"]))
+
+    # Sélection finale = nombre de jours validés
     seances_finales = seances_valides[:jours_final]
 
     return jsonify({
