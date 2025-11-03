@@ -82,7 +82,7 @@ def generate_by_id():
             jours_max = ref_fields.get("Jours_max")
 
     # 5) Calcul jours_final via RG
-    etat_jours, message_jours, jours_final = verifier_jours(fields, jours_min, jours_max)
+    etat_jours, message_jours, jours_final = verifier_jours(fields)
 
     try:
         jours_final = int(jours_final)
