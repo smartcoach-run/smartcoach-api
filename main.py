@@ -4,18 +4,17 @@ import os
 
 app = Flask(__name__)
 
-# Chargement des variables Render
 AIRTABLE_KEY = os.environ.get("AIRTABLE_KEY")
 BASE_ID = os.environ.get("BASE_ID")
 
-# Connexion Airtable
-api = Api(AIRTABLE_KEY)
-print(">>> DEBUG AIRTABLE_KEY =", AIRTABLE_KEY)
-print(">>> DEBUG BASE_ID =", BASE_ID)
+TABLE_COUR_NAME = os.environ.get("TABLE_COUR")
+TABLE_SEANCES_NAME = os.environ.get("TABLE_SEANCES")
 
-# Tables (➡️ Utiliser EXACTEMENT les noms affichés dans Airtable)
-TABLE_COUR = api.table(BASE_ID, "👤 Coureurs")       # ou "🏃 Coureurs" si c'est le nom affiché
-TABLE_SEANCES = api.table(BASE_ID, "🏋️ Séances")     # ou "📘 Séances"
+api = Api(AIRTABLE_KEY)
+
+TABLE_COUR = api.table(BASE_ID, TABLE_COUR_NAME)
+TABLE_SEANCES = api.table(BASE_ID, TABLE_SEANCES_NAME)
+
 
 def verifier_jours(fields):
     jours_dispo = fields.get("📅Nb_jours_dispo")
