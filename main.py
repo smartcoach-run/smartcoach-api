@@ -77,10 +77,18 @@ def generate_by_id():
 
     # 4) RG Jours (B03-COH)
     nb_jours_dispo = fields.get("📅Nb_jours_dispo")
-    ref = fields.get("📘 Référentiel Niveaux", [])
+    ref_ids = fields.get("📘 Référentiel Niveaux", [])
+    jours_min = None
+    jours_max = None
 
-    jours_min = ref[0].get("Jours_min") if ref else None
-    jours_max = ref[0].get("Jours_max") if ref else None
+    if isinstance(ref_ids, list) and len(ref_ids) > 0:
+        ref_id = ref_ids[0]
+        ref_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/📘 Référentiel Niveaux/{ref_id}"
+        r_ref = requests.get(ref_url, headers=headers)
+        if r_ref.status_code == 200:
+            ref_fields = r_ref.json().get("fields", {})
+            jours_min = ref_fields.get("Jours_min")
+            jours_max = ref_fields.get("Jours_max")
 
     if nb_jours_dispo is None or jours_min is None or jours_max is None:
         jours_final = nb_jours_dispo or 1
