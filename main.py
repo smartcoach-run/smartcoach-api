@@ -14,8 +14,8 @@ print(">>> DEBUG AIRTABLE_KEY =", AIRTABLE_KEY)
 print(">>> DEBUG BASE_ID =", BASE_ID)
 
 # Tables (➡️ Utiliser EXACTEMENT les noms affichés dans Airtable)
-TABLE_COUR = api.table(BASE_ID, "Coureurs")       # ou "🏃 Coureurs" si c'est le nom affiché
-TABLE_SEANCES = api.table(BASE_ID, "Séances")     # ou "📘 Séances"
+TABLE_COUR = api.table(BASE_ID, "👤 Coureurs")       # ou "🏃 Coureurs" si c'est le nom affiché
+TABLE_SEANCES = api.table(BASE_ID, "🏋️ Séances")     # ou "📘 Séances"
 
 def verifier_jours(fields):
     jours_dispo = fields.get("📅Nb_jours_dispo")
