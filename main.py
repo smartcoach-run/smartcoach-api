@@ -68,7 +68,13 @@ def generate_by_id():
     etat_jours, message_jours, jours_final = verifier_jours(fields)
     print("JOURS:", etat_jours, message_jours, jours_final)
 
+    # Convertit en entier de manière robuste
+    try:
+        jours_final = int(jours_final)
+    except:
+        jours_final = 1  # sécurité minimale (ne bloque jamais)
     fields["📅 Jours_final"] = jours_final
+
 
     # 5) Sélection des séances
     seances_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/Séances"
@@ -78,7 +84,7 @@ def generate_by_id():
     r_seances = requests.get(seances_url, headers=headers, params=params)
     seances_records = r_seances.json().get("records", [])
 
-    seances_selection = seances_records[:jours_final]
+    seances_selection = seances_records[:max(jours_final, 1)]
 
     seances = []
     for s in seances_selection:
