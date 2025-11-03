@@ -51,7 +51,7 @@ def generate_by_id():
                 ref_fields = r_ref.json().get("fields", {})
                 vdot_from_ref = ref_fields.get(VDOT_FIELD_NAME)
                 if vdot_from_ref is not None:
-                    fields["VDOT utilisé"] = vdot_from_ref
+                    fields["VDOT_utilisé"] = vdot_from_ref
 
     # 🔹 3) Contrôle des règles de gestion
     etat_vdot, message_id, vdot_final = verifier_vdot(fields)
