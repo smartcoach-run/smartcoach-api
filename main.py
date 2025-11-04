@@ -10,10 +10,9 @@ AIRTABLE_KEY = os.environ.get("AIRTABLE_KEY")
 BASE_ID = os.environ.get("BASE_ID")
 
 TABLE_COUR_NAME = os.environ.get("TABLE_COUR")                 # 🏃 Coureurs
-TABLE_SEANCES_NAME = os.environ.get("TABLE_SEANCES")           # 🏋️ Séances   (générées)
-TABLE_SEANCES_TYPES_NAME = os.environ.get("TABLE_SEANCES_TYPES")  # 📘 Séances types (référentiel)
+TABLE_SEANCES_NAME = os.environ.get("TABLE_SEANCES")           # 🏋️ Séances (générées)
+TABLE_SEANCES_TYPES_NAME = os.environ.get("TABLE_SEANCES_TYPES")  # 📘 Séances types
 TABLE_MODEL_NAME = "📐 Modèles"
-TABLE_MODEL = api.table(BASE_ID, TABLE_MODEL_NAME)
 
 # Validation ENV
 missing_env = [k for k, v in {
@@ -27,11 +26,13 @@ missing_env = [k for k, v in {
 if missing_env:
     raise RuntimeError(f"[CONFIG] Variables d’environnement manquantes: {', '.join(missing_env)}")
 
-# ========= AIRTABLE CLIENTS =========
+# ========= AIRTABLE CONNECT =========
 api = Api(AIRTABLE_KEY)
+
 TABLE_COUR = api.table(BASE_ID, TABLE_COUR_NAME)
-TABLE_SEANCES = api.table(BASE_ID, TABLE_SEANCES_NAME)                 # 🏋️ Séances (écriture)
-TABLE_SEANCES_TYPES = api.table(BASE_ID, TABLE_SEANCES_TYPES_NAME)     # 📘 Séances types (lecture)
+TABLE_SEANCES = api.table(BASE_ID, TABLE_SEANCES_NAME)
+TABLE_SEANCES_TYPES = api.table(BASE_ID, TABLE_SEANCES_TYPES_NAME)
+TABLE_MODEL = api.table(BASE_ID, TABLE_MODEL_NAME)
 
 def weeks_between(d1, d2):
     """Nombre de semaines arrondi, min=1."""
