@@ -1,7 +1,10 @@
-from flask import Flask, request, jsonify
-from pyairtable import Api
 import os
 from datetime import datetime
+from flask import Flask, request, jsonify
+from pyairtable import Api
+from dotenv import load_dotenv
+
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -9,12 +12,11 @@ app = Flask(__name__)
 AIRTABLE_KEY = os.environ.get("AIRTABLE_KEY")
 BASE_ID = os.environ.get("BASE_ID")
 
-TABLE_COUR_NAME = os.environ.get("TABLE_COUR")                      # 🏃 Coureurs
-TABLE_SEANCES_NAME = os.environ.get("TABLE_SEANCES")                # 🏋️ Séances générées
-TABLE_SEANCES_TYPES_NAME = os.environ.get("TABLE_SEANCES_TYPES")    # 📘 Séances types
-TABLE_MODEL_NAME = "📐 Modèles"                                     # Table pilotage du plan
+TABLE_COUR_NAME = os.environ.get("TABLE_COUR")                 # 🏃 Coureurs
+TABLE_SEANCES_NAME = os.environ.get("TABLE_SEANCES")           # 🏋️ Séances   (générées)
+TABLE_SEANCES_TYPES_NAME = os.environ.get("TABLE_SEANCES_TYPES")  # 📘 Séances types (référentiel)
 
-# Vérification des variables d’environnement
+# Validation ENV
 missing_env = [k for k, v in {
     "AIRTABLE_KEY": AIRTABLE_KEY,
     "BASE_ID": BASE_ID,
@@ -26,95 +28,187 @@ missing_env = [k for k, v in {
 if missing_env:
     raise RuntimeError(f"[CONFIG] Variables d’environnement manquantes: {', '.join(missing_env)}")
 
-# ========= AIRTABLE INIT =========
+
+# ========= AIRTABLE CLIENTS =========
 api = Api(AIRTABLE_KEY)
-
 TABLE_COUR = api.table(BASE_ID, TABLE_COUR_NAME)
-TABLE_SEANCES = api.table(BASE_ID, TABLE_SEANCES_NAME)
-TABLE_SEANCES_TYPES = api.table(BASE_ID, TABLE_SEANCES_TYPES_NAME)
-TABLE_MODEL = api.table(BASE_ID, TABLE_MODEL_NAME)
+TABLE_SEANCES = api.table(BASE_ID, TABLE_SEANCES_NAME)                 # 🏋️ Séances (écriture)
+TABLE_SEANCES_TYPES = api.table(BASE_ID, TABLE_SEANCES_TYPES_NAME)     # 📘 Séances types (lecture)
 
-# ========= UTILS =========
+
+# ========= HELPERS =========
 def weeks_between(d1, d2):
+    """Nombre de semaines arrondi, min=1."""
     try:
         return max(1, round((d2 - d1).days / 7))
-    except:
-        return 8
+    except Exception:
+        return 8  # fallback
 
-def get_modele_seance(objectif, niveau, semaine, jour):
+def verifier_jours(fields):
     """
-    Récupère la Clé Séance définie dans la table de pilotage 📐 Modèles
+    Ajuste le nb de jours hebdo selon RG B03-COH (Jours_min/Jours_max du réf niveaux).
     """
-    formula = (
-        f"AND("
-        f"{{Objectif}} = '{objectif}',"
-        f"{{Niveau}} = '{niveau}',"
-        f"{{Semaine}} = {semaine},"
-        f"{{Jour planifié}} = {jour}"
-        f")"
-    )
+    jours_dispo = fields.get("📅Nb_jours_dispo")
+    try:
+        jours_dispo = int(jours_dispo)
+    except Exception:
+        jours_dispo = 1
 
-    rows = TABLE_MODEL.all(formula=formula)
-    if not rows:
-        raise ValueError(f"Aucune séance définie pour : Objectif={objectif}, Niveau={niveau}, S={semaine}, J={jour}")
+    jmin = fields.get("Jours_min")
+    jmax = fields.get("Jours_max")
+    try:
+        jmin = int(jmin) if jmin is not None else None
+        jmax = int(jmax) if jmax is not None else None
+    except Exception:
+        jmin, jmax = None, None
 
-    # Clé séance est un lien → liste → on prend le premier ID
-    clé = rows[0]["fields"]["Clé séance"][0]
-    return clé
+    if jmin is None or jmax is None:
+        return max(1, jours_dispo)
 
-# ========= API ENDPOINT =========
+    return max(jmin, min(jours_dispo, jmax))
+
+
+# ========= ROUTES =========
+@app.get("/")
+def health():
+    return "SmartCoach API active ✅"
+
+
 @app.post("/generate_by_id")
 def generate_by_id():
-    data = request.json
+    data = request.json or {}
     record_id = data.get("id")
 
-    coureur = TABLE_COUR.get(record_id)
-    fields = coureur["fields"]
-
-    nb_semaines = fields.get("Nb_semaines") or 8
-    jours_final = fields.get("📅Nb_jours_dispo") or 2
+    if not record_id:
+        return jsonify({
+            "status": "error",
+            "message_id": "SC_API_001",
+            "message": "⚠️ Aucun ID reçu.",
+            "expected_format": {"id": "recXXXXXXXXXXXXXX"}
+        }), 400
 
     try:
-        nb_semaines = int(nb_semaines)
-        jours_final = int(jours_final)
-    except:
-        return jsonify({"status": "error", "message": "Champs invalides"}), 400
+        rec = TABLE_COUR.get(record_id)
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message_id": "SC_API_002",
+            "message": f"❌ Coureur introuvable: {e}"
+        }), 404
 
+    fields = rec.get("fields", {})
+    niveau = fields.get("Niveau_normalisé")
+    objectif = fields.get("Objectif_normalisé")
+    vdot = fields.get("VDOT_utilisé")
+
+    # Nb semaines (calcul date)
+    nb_semaines = 8
+    date_obj = fields.get("Date_objectif")
+    if date_obj:
+        try:
+            d_obj = datetime.fromisoformat(date_obj.replace("Z", "").replace("z", ""))
+            nb_semaines = weeks_between(datetime.today(), d_obj)
+        except Exception:
+            pass
+
+    # Jours hebdo
+    jours_final = verifier_jours(fields)
+
+    # Phases autorisées début de plan
+    PHASES_AUTORISEES = ["Prépa générale", "Progression"]
+
+    try:
+        all_seances_types = TABLE_SEANCES_TYPES.all()
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message_id": "SC_API_003",
+            "message": f"❌ Impossible de lire 📘 Séances types: {e}"
+        }), 500
+
+    # Filtrage
+    seances_valides = []
+    for s in all_seances_types:
+        f = s.get("fields", {})
+
+        if f.get("Mode") != "Running": continue
+        if f.get("Phase") not in PHASES_AUTORISEES: continue
+
+        niveaux = f.get("Niveau") or []
+        if isinstance(niveaux, str): niveaux = [niveaux]
+        if niveau and (niveau not in niveaux): continue
+
+        objectifs = f.get("Objectif") or []
+        if isinstance(objectifs, str): objectifs = [objectifs]
+        if objectif and (objectif not in objectifs): continue
+
+        vmin = f.get("VDOT_min")
+        vmax = f.get("VDOT_max")
+        try:
+            if vmin is not None and vmax is not None and vdot is not None:
+                dv = float(vdot)
+                if not (float(vmin) <= dv <= float(vmax)):
+                    continue
+        except Exception:
+            pass
+
+        seances_valides.append(f)
+
+    if not seances_valides:
+        return jsonify({
+            "status": "error",
+            "message_id": "SC_COACH_012",
+            "message": "Aucune séance adaptée trouvée dans le référentiel."
+        }), 200
+
+    # Tri progressivité
+    seances_valides = sorted(
+        seances_valides,
+        key=lambda x: (x.get("Charge", 2), x.get("Durée (min)", 30))
+    )
+
+    # Génération
     total_crees = 0
     sorties = []
 
     for semaine in range(1, nb_semaines + 1):
-        for j in range(1, jours_final + 1):
+        bloc = seances_valides[:max(1, jours_final)]
+        for j, f in enumerate(bloc, start=1):
 
-            clé = get_modele_seance("10K", "Reprise", semaine, j)
-            st = TABLE_SEANCES_TYPES.get(clé)["fields"]
+            # ✅ Correction : Type séance multi-select → Type texte
+            type_brut = f.get("Type séance")
+            if isinstance(type_brut, list) and len(type_brut) > 0:
+                type_final = type_brut[0]
+            else:
+                type_final = type_brut if isinstance(type_brut, str) else None
 
             payload = {
                 "Coureur": [record_id],
-                "NomSéance": st.get("Nom séance"),
-                "Clé séance": st.get("Clé séance"),
-                "Phase": st.get("Phase"),
-                "type": seance_type.get("Type séance")[0] if seance_type.get("Type séance") else None,
-                "Durée (min)": st.get("Durée (min)"),
-                "Charge": st.get("Charge", 2),
-                "🧠 Message_coach": st.get("🧠 Message_coach (modèle)"),
+                "Nom séance": f.get("Nom séance"),
+                "Clé séance": f.get("Clé séance"),
+                "Type": type_final,
+                "Phase": f.get("Phase"),
+                "Durée (min)": f.get("Durée (min)"),
+                "Charge": f.get("Charge", 2),
+                "🧠 Message_coach": f.get("🧠 Message_coach (modèle)"),
                 "Semaine": semaine,
                 "Jour planifié": j
             }
 
             TABLE_SEANCES.create(payload)
-            sorties.append(payload)
             total_crees += 1
+            sorties.append(payload)
 
     return jsonify({
         "status": "ok",
+        "message_id": "SC_COACH_021",
         "message": f"✅ {total_crees} séances générées ({nb_semaines} sem × {jours_final}/sem).",
         "nb_semaines": nb_semaines,
         "jours_par_semaine": jours_final,
-        "total": total_crees,
-        "message_id": "SC_COACH_021"
-    })
+        "total": total_crees
+    }), 200
 
-# ========= RENDER ENTRYPOINT =========
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
