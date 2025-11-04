@@ -1,145 +1,146 @@
 from flask import Flask, request, jsonify
 from pyairtable import Api
 import os
+from datetime import datetime
 
 app = Flask(__name__)
 
-# --- ENV VARIABLES ---
+# --- Airtable config ---
 AIRTABLE_KEY = os.environ.get("AIRTABLE_KEY")
 BASE_ID = os.environ.get("BASE_ID")
-TABLE_COUR_NAME = os.environ.get("TABLE_COUR")             # ex: "🏃 Coureurs"
-TABLE_SEANCES_NAME = os.environ.get("TABLE_SEANCES")       # ex: "📘 Séances types"
 
-if not AIRTABLE_KEY or not BASE_ID or not TABLE_COUR_NAME or not TABLE_SEANCES_NAME:
-    raise Exception("❌ Variables d'environnement manquantes. Vérifie Render.")
+TABLE_COUR_NAME = os.environ.get("TABLE_COUR")
+TABLE_SEANCES_NAME = os.environ.get("TABLE_SEANCES")
+TABLE_PLAN_NAME = os.environ.get("TABLE_PLAN")  # 📅 Séances
 
 api = Api(AIRTABLE_KEY)
+
 TABLE_COUR = api.table(BASE_ID, TABLE_COUR_NAME)
 TABLE_SEANCES = api.table(BASE_ID, TABLE_SEANCES_NAME)
+TABLE_PLAN = api.table(BASE_ID, TABLE_PLAN_NAME)
+
+
+def weeks_between(d1, d2):
+    return max(1, round((d2 - d1).days / 7))
 
 
 def verifier_jours(fields):
     jours_dispo = fields.get("📅Nb_jours_dispo")
-    if jours_dispo is None:
-        return "OK", None, 1
+    if not jours_dispo:
+        return 1
+
+    try:
+        jours_dispo = int(jours_dispo)
+    except:
+        return 1
 
     jours_min = fields.get("Jours_min")
     jours_max = fields.get("Jours_max")
 
     try:
-        jours_dispo = int(jours_dispo)
-        jours_min = int(jours_min) if jours_min else jours_dispo
-        jours_max = int(jours_max) if jours_max else jours_dispo
+        jours_min = int(jours_min)
+        jours_max = int(jours_max)
     except:
-        return "OK", None, jours_dispo
+        return jours_dispo
 
-    if jours_dispo < jours_min:
-        return "WARN", "SC_COACH_003", jours_min
-
-    if jours_dispo > jours_max:
-        return "WARN", "SC_COACH_004", jours_max
-
-    return "OK", "SC_COACH_002", jours_dispo
+    return max(jours_min, min(jours_dispo, jours_max))
 
 
 @app.post("/generate_by_id")
 def generate_by_id():
     data = request.json
-
-    # --- VALIDATION INPUT ---
     record_id = data.get("id")
+
     if not record_id:
         return jsonify({
             "status": "error",
-            "message": "⚠️ Aucun ID de coureur reçu dans la requête.",
             "message_id": "SC_API_001",
-            "expected_format": {"id": "recXXXXXXXXXXXXXX"}
+            "message": "⚠️ Aucun ID envoyé."
         })
 
-    # --- RÉCUP COUREUR ---
     rec = TABLE_COUR.get(record_id)
-    fields = rec.get("fields", {})
+    fields = rec["fields"]
 
     niveau = fields.get("Niveau_normalisé")
     objectif = fields.get("Objectif_normalisé")
     vdot = fields.get("VDOT_utilisé")
 
-    _, _, jours_final = verifier_jours(fields)
+    # Durée du plan → basé sur la date objectif
+    date_obj = fields.get("Date_objectif")
+    nb_semaines = 8
+    if date_obj:
+        try:
+            d_obj = datetime.fromisoformat(date_obj)
+            nb_semaines = weeks_between(datetime.today(), d_obj)
+        except:
+            pass
 
-    # --- PHASES DÉBUT DE PLAN ---
+    jours_final = verifier_jours(fields)
+
     PHASES_AUTORISEES = ["Prépa générale", "Progression"]
 
-    # --- FILTRAGE DES SÉANCES ---
     all_seances = TABLE_SEANCES.all()
     seances_valides = []
 
     for s in all_seances:
-        f = s.get("fields", {})
+        f = s["fields"]
 
-        # Mode Running uniquement
         if f.get("Mode") != "Running":
             continue
-
-        # Phase cohérente
         if f.get("Phase") not in PHASES_AUTORISEES:
             continue
 
-        # Niveau compatible
-        niveaux = f.get("Niveau", [])
-        if isinstance(niveaux, str):
-            niveaux = [niveaux]
-        if niveau not in niveaux:
+        if niveau not in (f.get("Niveau") or []):
+            continue
+        if objectif not in (f.get("Objectif") or []):
             continue
 
-        # Objectif compatible
-        objectifs = f.get("Objectif", [])
-        if isinstance(objectifs, str):
-            objectifs = [objectifs]
-        if objectif not in objectifs:
-            continue
-
-        # Filtre VDOT
-        vmin = f.get("VDOT_min")
-        vmax = f.get("VDOT_max")
+        vmin, vmax = f.get("VDOT_min"), f.get("VDOT_max")
         try:
-            if vmin is not None and vmax is not None and vdot is not None:
-                if not (float(vmin) <= float(vdot) <= float(vmax)):
+            if vmin and vmax and vdot:
+                dv = float(vdot)
+                if not (float(vmin) <= dv <= float(vmax)):
                     continue
         except:
             pass
 
-        seances_valides.append({
-            "id": s["id"],
-            "nom": f.get("Nom séance"),
-            "duree_min": f.get("Durée (min)"),
-            "type": f.get("Type séance"),
-            "phase": f.get("Phase"),
-            "conseil": f.get("🧠 Message_coach (modèle)"),
-            "charge": f.get("Charge", 2)
-        })
+        seances_valides.append(f)
 
-    # Aucun match trouvé
-    if len(seances_valides) == 0:
+    if not seances_valides:
         return jsonify({
             "status": "error",
             "message_id": "SC_COACH_012",
-            "message": "Aucune séance adaptée trouvée. Base à compléter.",
+            "message": "Aucune séance adaptée trouvée.",
             "seances": []
         })
 
-    # Tri → progressivité
-    seances_valides = sorted(seances_valides, key=lambda x: (x["charge"], x["duree_min"]))
+    seances_valides = sorted(seances_valides, key=lambda x: (x.get("Charge", 2), x.get("Durée (min)", 30)))
 
-    # Sélection finale = nombre de jours validés
-    seances_finales = seances_valides[:jours_final]
+    # --- CONSTRUCTION DU PLAN ---
+    plan = []
+    for semaine in range(1, nb_semaines + 1):
+        bloc = seances_valides[:jours_final]
+        for j, f in enumerate(bloc, start=1):
+            record = {
+                "NomSéance": f.get("Nom séance"),
+                "Type": f.get("Type séance"),
+                "Phase": f.get("Phase"),
+                "Durée (min)": f.get("Durée (min)"),
+                "Charge": f.get("Charge", 2),
+                "🧠 Message_coach (modèle)": f.get("🧠 Message_coach (modèle)"),
+                "Semaine": semaine,
+                "Jour planifié": j,
+                "Coureur": [record_id]
+            }
+            TABLE_PLAN.create(record)
+            plan.append(record)
 
     return jsonify({
         "status": "ok",
-        "message_id": "SC_COACH_021",
-        "message": "✅ Sélection optimisée selon ton niveau & ton objectif.",
-        "seances": seances_finales,
-        "jours_final": jours_final,
-        "vdot": vdot
+        "message": f"✅ {len(plan)} séances générées sur {nb_semaines} semaines.",
+        "nb_semaines": nb_semaines,
+        "jours_par_semaine": jours_final,
+        "total": len(plan)
     })
 
 
@@ -149,5 +150,4 @@ def home():
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
