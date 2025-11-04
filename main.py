@@ -166,32 +166,33 @@ def generate_by_id():
         for s in existing:
             TABLE_SEANCES.delete(s["id"])
 
-# === GÉNÉRATION ===
-total_crees = 0
-for semaine in range(1, nb_semaines+1):
-    bloc = seances_valides[:max(1, jours_final)]
-    for j, f in enumerate(bloc, start=1):
+    # === GÉNÉRATION ===
+    total_crees = 0
+    for semaine in range(1, nb_semaines+1):
+        bloc = seances_valides[:max(1, jours_final)]
+        for j, f in enumerate(bloc, start=1):
 
-        # Récupération robuste du type
-        type_brut = f.get("Type séance") or f.get("Type")
-        type_final = type_brut[0] if isinstance(type_brut, list) else type_brut
+            # Récupération robuste du type
+            type_brut = f.get("Type séance") or f.get("Type")
+            type_final = type_brut[0] if isinstance(type_brut, list) else type_brut
 
-        TABLE_SEANCES.create({
-            "Coureur": [record_id],
-            "Nom séance": f.get("Nom séance"),
-            "Clé séance": f.get("Clé séance"),                  # *** RESTAURÉ ***
-            "Phase": f.get("Phase"),                            # *** RESTAURÉ ***
-            "Type": type_final,                                 # (on utilise bien le champ Airtable existant)
-            "Durée (min)": f.get("Durée (min)"),
-            "Charge": f.get("Charge", 2),
-            "🧠 Message_coach": f.get("🧠 Message_coach (modèle)"),  # *** RESTAURÉ ***
-            "Semaine": semaine,
-            "Jour planifié": j
-        })
-        total_crees += 1
+            TABLE_SEANCES.create({
+                "Coureur": [record_id],
+                "Nom séance": f.get("Nom séance"),
+                "Clé séance": f.get("Clé séance"),
+                "Phase": f.get("Phase"),
+                "Type": type_final,
+                "Durée (min)": f.get("Durée (min)"),
+                "Charge": f.get("Charge", 2),
+                "🧠 Message_coach": f.get("🧠 Message_coach (modèle)"),
+                "Semaine": semaine,
+                "Jour planifié": j
+            })
+            total_crees += 1
 
+    # === FIN DU TRAITEMENT → API RESPONSE ===
     return jsonify({
-        "status":"ok",
+        "status": "ok",
         "message_id": "SC_COACH_023" if had_existing else "SC_COACH_024",
         "message": ("🔁 Plan mis à jour" if had_existing else "✅ Séances générées")
                    + f" ({nb_semaines} sem × {jours_final}/sem).",
@@ -199,7 +200,6 @@ for semaine in range(1, nb_semaines+1):
         "jours_par_semaine": jours_final,
         "total": total_crees
     }), 200
-
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
