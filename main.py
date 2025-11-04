@@ -221,7 +221,6 @@ def generate_by_id():
                     "Phase": phase,
                     "Clé séance": cle,
                     "🧠 Message coach": message,
-                    "Allure / zone": allure,
                     "Semaine": semaine,
                     "Jour planifié": j,
                     "Version plan": nouvelle_version
