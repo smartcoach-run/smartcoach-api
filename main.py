@@ -94,7 +94,7 @@ def generate_by_id():
                 "NomSéance": st.get("Nom séance"),
                 "Clé séance": st.get("Clé séance"),
                 "Phase": st.get("Phase"),
-                "Type": st.get("Type séance"),
+                "type": seance_type.get("Type séance")[0] if seance_type.get("Type séance") else None,
                 "Durée (min)": st.get("Durée (min)"),
                 "Charge": st.get("Charge", 2),
                 "🧠 Message_coach": st.get("🧠 Message_coach (modèle)"),
