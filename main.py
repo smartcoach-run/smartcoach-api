@@ -13,12 +13,11 @@ app = Flask(__name__)
 AIRTABLE_KEY = os.environ.get("AIRTABLE_KEY")
 BASE_ID = os.environ.get("BASE_ID")
 
-TABLE_COUR_NAME = os.environ.get("TABLE_COUR")                   # 🏃 Coureurs
-TABLE_SEANCES_NAME = os.environ.get("TABLE_SEANCES")             # 🏋️ Séances (générées)
-TABLE_SEANCES_TYPES_NAME = os.environ.get("TABLE_SEANCES_TYPES") # 📘 Séances types (référentiel)
-TABLE_ARCHIVES_NAME = os.environ.get("TABLE_ARCHIVES")           # 🗄️ Archives Séances
+TABLE_COUR_NAME = os.environ.get("TABLE_COUR")
+TABLE_SEANCES_NAME = os.environ.get("TABLE_SEANCES")
+TABLE_SEANCES_TYPES_NAME = os.environ.get("TABLE_SEANCES_TYPES")
+TABLE_ARCHIVES_NAME = os.environ.get("TABLE_ARCHIVES")
 
-# Validation ENV
 missing_env = [k for k, v in {
     "AIRTABLE_KEY": AIRTABLE_KEY,
     "BASE_ID": BASE_ID,
@@ -31,18 +30,16 @@ missing_env = [k for k, v in {
 if missing_env:
     raise RuntimeError(f"[CONFIG] Variables d’environnement manquantes: {', '.join(missing_env)}")
 
-# ========= AIRTABLE CLIENTS =========
 api = Api(AIRTABLE_KEY)
 TABLE_COUR = api.table(BASE_ID, TABLE_COUR_NAME)
 TABLE_SEANCES = api.table(BASE_ID, TABLE_SEANCES_NAME)
 TABLE_SEANCES_TYPES = api.table(BASE_ID, TABLE_SEANCES_TYPES_NAME)
 TABLE_ARCHIVES = api.table(BASE_ID, TABLE_ARCHIVES_NAME)
 
-# ========= HELPERS =========
 def weeks_between(d1, d2):
     try:
         return max(1, round((d2 - d1).days / 7))
-    except Exception:
+    except:
         return 8
 
 def verifier_jours(fields):
@@ -68,11 +65,9 @@ def verifier_jours(fields):
 def _filter_formula_sessions_for_coureur(record_id: str) -> str:
     return f"SEARCH('{record_id}', ARRAYJOIN({{Coureur}}))"
 
-# ========= ROUTES =========
 @app.get("/")
 def health():
     return "SmartCoach API active ✅"
-
 
 @app.post("/generate_by_id")
 def generate_by_id():
@@ -80,27 +75,18 @@ def generate_by_id():
     record_id = data.get("id")
 
     if not record_id:
-        return jsonify({
-            "status": "error",
-            "message_id": "SC_API_001",
-            "message": "⚠️ Aucun ID reçu.",
-        }), 400
+        return jsonify({"status": "error", "message_id": "SC_API_001", "message": "⚠️ Aucun ID reçu."}), 400
 
     try:
         rec = TABLE_COUR.get(record_id)
     except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message_id": "SC_API_002",
-            "message": f"❌ Coureur introuvable: {e}"
-        }), 404
+        return jsonify({"status": "error", "message_id": "SC_API_002", "message": f"❌ Coureur introuvable: {e}"}), 404
 
     fields = rec.get("fields", {})
     niveau = fields.get("Niveau_normalisé")
     objectif = fields.get("Objectif_normalisé")
     vdot = fields.get("VDOT_utilisé")
 
-    # Nb semaines
     nb_semaines = 8
     date_obj = fields.get("Date_objectif")
     if date_obj:
@@ -119,7 +105,6 @@ def generate_by_id():
     except Exception as e:
         return jsonify({"status":"error","message_id":"SC_API_003","message":f"❌ Impossible de lire référentiel: {e}"}), 500
 
-    # Filtrage
     seances_valides = []
     for s in all_seances_types:
         f = s.get("fields", {})
@@ -152,58 +137,50 @@ def generate_by_id():
         seances_valides.append(f)
 
     if not seances_valides:
-        return jsonify({
-            "status":"error",
-            "message_id":"SC_COACH_012",
-            "message":"Aucune séance adaptée trouvée."
-        }), 200
+        return jsonify({"status":"error","message_id":"SC_COACH_012","message":"Aucune séance adaptée trouvée."}), 200
 
     seances_valides = sorted(seances_valides, key=lambda x:(x.get("Charge",2),x.get("Durée (min)",30)))
 
-    # === ARCHIVAGE + RESET ===
+    # === ARCHIVAGE ===
     existing = TABLE_SEANCES.all(formula=_filter_formula_sessions_for_coureur(record_id))
     had_existing = len(existing) > 0
 
     if had_existing:
-        try:
-            for s in existing:
-                f = s.get("fields", {})
-                TABLE_ARCHIVES.create({
-                    "Coureur":[record_id],
-                    "ID_Seance_Originale": s["id"],
-                    "Nom séance": f.get("Nom séance"),
-                    "Type séance": f.get("Type"),
-                    "Durée (min)": f.get("Durée (min)"),
-                    "Charge": f.get("Charge"),
-                    "Semaine": f.get("Semaine"),
-                    "Jour planifié": f.get("Jour planifié"),
-                    "Allure / zone": f.get("Allure / zone"),
-                    "Détails JSON": json.dumps(f, ensure_ascii=False),
-                    "Version plan": fields.get("Version_plan", "v1"),
-                    "Source":"Mise à jour"
-                })
-            for s in existing:
-                TABLE_SEANCES.delete(s["id"])
-        except Exception as e:
-            return jsonify({"status":"error","message_id":"SC_COACH_025","message":f"⚠️ Archivage impossible : {e}"}), 500
+        for s in existing:
+            f = s.get("fields", {})
+
+            TABLE_ARCHIVES.create({
+                "ID séance originale": s["id"],
+                "Coureur": [record_id],
+                "Nom séance": f.get("Nom séance"),
+                "Type séance": f.get("Type séance") or f.get("Type"),
+                "Durée (min)": f.get("Durée (min)"),
+                "Allure / zone": f.get("Allure / zone"),
+                "Charge": f.get("Charge"),
+                "Détails JSON": json.dumps(f, ensure_ascii=False),
+                "Version plan": fields.get("Version_plan", "v1"),
+                "Date archivage": datetime.utcnow().isoformat(),
+                "Source": "Mise à jour"
+            })
+
+        for s in existing:
+            TABLE_SEANCES.delete(s["id"])
 
     # === GÉNÉRATION ===
     total_crees = 0
     for semaine in range(1, nb_semaines+1):
         bloc = seances_valides[:max(1, jours_final)]
         for j, f in enumerate(bloc, start=1):
-            type_brut = f.get("Type séance")
-            type_final = type_brut[0] if isinstance(type_brut, list) and type_brut else type_brut
+
+            type_brut = f.get("Type séance") or f.get("Type")
+            type_final = type_brut[0] if isinstance(type_brut, list) else type_brut
 
             TABLE_SEANCES.create({
                 "Coureur":[record_id],
                 "Nom séance": f.get("Nom séance"),
-                "Clé séance": f.get("Clé séance"),
-                "Type": type_final,
-                "Phase": f.get("Phase"),
+                "Type séance": type_final,
                 "Durée (min)": f.get("Durée (min)"),
                 "Charge": f.get("Charge",2),
-                "🧠 Message_coach": f.get("🧠 Message_coach (modèle)"),
                 "Semaine": semaine,
                 "Jour planifié": j
             })
