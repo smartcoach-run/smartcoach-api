@@ -10,9 +10,9 @@ AIRTABLE_KEY = os.environ.get("AIRTABLE_KEY")
 BASE_ID = os.environ.get("BASE_ID")
 
 TABLE_COUR_NAME = os.environ.get("TABLE_COUR")                      # 🏃 Coureurs
-TABLE_SEANCES_NAME = os.environ.get("TABLE_SEANCES")                # 🏋️ Séances (générées)
-TABLE_SEANCES_TYPES_NAME = os.environ.get("TABLE_SEANCES_TYPES")    # 📘 Séances types (référentiel)
-TABLE_MODEL_NAME = "📐 Modèles"                                     # Tableau pilotage
+TABLE_SEANCES_NAME = os.environ.get("TABLE_SEANCES")                # 🏋️ Séances générées
+TABLE_SEANCES_TYPES_NAME = os.environ.get("TABLE_SEANCES_TYPES")    # 📘 Séances types
+TABLE_MODEL_NAME = "📐 Modèles"                                     # Table pilotage du plan
 
 # Vérification des variables d’environnement
 missing_env = [k for k, v in {
@@ -35,7 +35,6 @@ TABLE_SEANCES_TYPES = api.table(BASE_ID, TABLE_SEANCES_TYPES_NAME)
 TABLE_MODEL = api.table(BASE_ID, TABLE_MODEL_NAME)
 
 # ========= UTILS =========
-
 def weeks_between(d1, d2):
     try:
         return max(1, round((d2 - d1).days / 7))
@@ -44,7 +43,7 @@ def weeks_between(d1, d2):
 
 def get_modele_seance(objectif, niveau, semaine, jour):
     """
-    Récupère la Clé séance depuis 📐 Modèles (pilotage du plan)
+    Récupère la Clé Séance définie dans la table de pilotage 📐 Modèles
     """
     formula = (
         f"AND("
@@ -54,15 +53,16 @@ def get_modele_seance(objectif, niveau, semaine, jour):
         f"{{Jour planifié}} = {jour}"
         f")"
     )
+
     rows = TABLE_MODEL.all(formula=formula)
     if not rows:
-        raise ValueError(f"Aucune séance prévue pour S={semaine} J={jour} ({objectif}-{niveau})")
+        raise ValueError(f"Aucune séance définie pour : Objectif={objectif}, Niveau={niveau}, S={semaine}, J={jour}")
 
-    clé = rows[0]["fields"]["Clé séance"][0]   # lien lookup -> retourne liste → ID
+    # Clé séance est un lien → liste → on prend le premier ID
+    clé = rows[0]["fields"]["Clé séance"][0]
     return clé
 
-# ========= MAIN ROUTE =========
-
+# ========= API ENDPOINT =========
 @app.post("/generate_by_id")
 def generate_by_id():
     data = request.json
@@ -114,6 +114,7 @@ def generate_by_id():
         "total": total_crees,
         "message_id": "SC_COACH_021"
     })
-    
- if __name__ == "__main__":
+
+# ========= RENDER ENTRYPOINT =========
+if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
