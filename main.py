@@ -210,27 +210,32 @@ def generate_by_id():
     sorties = []
 
     total_crees = 0
-sorties = []
+    sorties = []
 
-for semaine in range(1, nb_semaines + 1):
-    for j in range(1, jours_final + 1):
-        clé = get_modele_seance("10K", "Reprise", semaine, j)
-        st = TABLE_SEANCES_TYPES.get(clé)["fields"]
-        payload = {
-            "Coureur": [record_id],
-            "NomSéance": st.get("Nom séance"),
-            "Clé séance": st.get("Clé séance"),
-            "Phase": st.get("Phase"),
-            "Type": st.get("Type séance"),
-            "Durée (min)": st.get("Durée (min)"),
-            "Charge": st.get("Charge", 2),
-            "🧠 Message_coach": st.get("🧠 Message_coach (modèle)"),
-            "Semaine": semaine,
-            "Jour planifié": j
-        }
-        TABLE_SEANCES.create(payload)
-        total_crees += 1
-        sorties.append(payload)
+    for semaine in range(1, nb_semaines + 1):
+        for j in range(1, jours_final + 1):
+
+            # Récupère la clé séance depuis la table 📐 Modèles
+            clé = get_modele_seance("10K", "Reprise", semaine, j)
+
+            # Lookup dans 📘 Séances types
+            st = TABLE_SEANCES_TYPES.get(clé)["fields"]
+
+            # Création payload séance
+            payload = {
+                "Coureur": [record_id],
+                "NomSéance": st.get("Nom séance"),
+                "Clé séance": st.get("Clé séance"),
+                "Phase": st.get("Phase"),
+                "Type": st.get("Type séance"),
+                "Durée (min)": st.get("Durée (min)"),
+                "Charge": st.get("Charge", 2),
+                "🧠 Message_coach": st.get("🧠 Message_coach (modèle)"),
+                "Semaine": semaine,
+                "Jour planifié": j
+            }
+
+            TABLE_SEANCES.create(payload)
             total_crees += 1
             sorties.append(payload)
 
