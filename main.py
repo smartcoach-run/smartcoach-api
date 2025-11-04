@@ -178,7 +178,7 @@ def generate_by_id():
             TABLE_SEANCES.create({
                 "Coureur":[record_id],
                 "Nom séance": f.get("Nom séance"),
-                "Type séance": type_final,
+                "Type": type_final,
                 "Durée (min)": f.get("Durée (min)"),
                 "Charge": f.get("Charge",2),
                 "Semaine": semaine,
