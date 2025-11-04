@@ -12,6 +12,8 @@ BASE_ID = os.environ.get("BASE_ID")
 TABLE_COUR_NAME = os.environ.get("TABLE_COUR")                 # 🏃 Coureurs
 TABLE_SEANCES_NAME = os.environ.get("TABLE_SEANCES")           # 🏋️ Séances   (générées)
 TABLE_SEANCES_TYPES_NAME = os.environ.get("TABLE_SEANCES_TYPES")  # 📘 Séances types (référentiel)
+TABLE_MODEL_NAME = "📐 Modèles"
+TABLE_MODEL = api.table(BASE_ID, TABLE_MODEL_NAME)
 
 # Validation ENV
 missing_env = [k for k, v in {
@@ -70,6 +72,22 @@ def health():
     return "SmartCoach API active ✅"
 
 @app.post("/generate_by_id")
+
+def get_modele_seance(objectif, niveau, semaine, jour):
+    formula = (
+        f"AND("
+        f"{{Objectif}} = '{objectif}',"
+        f"{{Niveau}} = '{niveau}',"
+        f"{{Semaine}} = {semaine},"
+        f"{{Jour planifié}} = {jour}"
+        f")"
+    )
+    rows = TABLE_MODEL.all(formula=formula)
+    if not rows:
+        raise ValueError(f"Aucune séance prévue pour S={semaine} J={jour} ({objectif}-{niveau})")
+    clé = rows[0]["fields"]["Clé séance"][0]
+    return clé
+
 def generate_by_id():
     """
     Scénario 1 :
@@ -191,23 +209,28 @@ def generate_by_id():
     total_crees = 0
     sorties = []
 
-    for semaine in range(1, nb_semaines + 1):
-        bloc = seances_valides[:max(1, jours_final)]
-        for j, f in enumerate(bloc, start=1):
-            payload = {
-                # table cible 🏋️ Séances
-                "Coureur": [record_id],                        # link
-                "NomSéance": f.get("Nom séance"),              # depuis 📘 Séances types
-                "Phase": f.get("Phase"),
-                "Type": f.get("Type"),
-                "Durée (min)": f.get("Durée (min)"),
-                "Charge": f.get("Charge", 2),
-                "🧠 Message_coach": f.get("🧠 Message_coach (modèle)"),
-                "Semaine": semaine,
-                "Jour planifié": j
-            }
-            # Création Airtable
-            TABLE_SEANCES.create(payload)
+    total_crees = 0
+sorties = []
+
+for semaine in range(1, nb_semaines + 1):
+    for j in range(1, jours_final + 1):
+        clé = get_modele_seance("10K", "Reprise", semaine, j)
+        st = TABLE_SEANCES_TYPES.get(clé)["fields"]
+        payload = {
+            "Coureur": [record_id],
+            "NomSéance": st.get("Nom séance"),
+            "Clé séance": st.get("Clé séance"),
+            "Phase": st.get("Phase"),
+            "Type": st.get("Type séance"),
+            "Durée (min)": st.get("Durée (min)"),
+            "Charge": st.get("Charge", 2),
+            "🧠 Message_coach": st.get("🧠 Message_coach (modèle)"),
+            "Semaine": semaine,
+            "Jour planifié": j
+        }
+        TABLE_SEANCES.create(payload)
+        total_crees += 1
+        sorties.append(payload)
             total_crees += 1
             sorties.append(payload)
 
