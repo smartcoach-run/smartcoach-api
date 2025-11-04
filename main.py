@@ -199,7 +199,7 @@ def generate_by_id():
                 "Coureur": [record_id],                        # link
                 "NomSéance": f.get("Nom séance"),              # depuis 📘 Séances types
                 "Phase": f.get("Phase"),
-                "Type": f.get("Type séance"),
+                "Type": f.get("Type"),
                 "Durée (min)": f.get("Durée (min)"),
                 "Charge": f.get("Charge", 2),
                 "🧠 Message_coach": f.get("🧠 Message_coach (modèle)"),
