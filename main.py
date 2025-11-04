@@ -90,11 +90,9 @@ def generate_by_id():
                 "Type séance": type_final,
                 "Durée (min)": f.get("Durée (min)"),
                 "Charge": f.get("Charge", 2),
-                "Phase": f.get("Phase"),
-                "Clé séance": f.get("Clé séance"),
-                "🧠 Message coach": f.get("🧠 Message coach"),
                 "Semaine": semaine,
-                "Jour planifié": j
+                "Jour planifié": j,
+                "Version plan": nouvelle_version
             })
 
             total_crees += 1
