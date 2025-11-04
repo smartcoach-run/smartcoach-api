@@ -142,7 +142,8 @@ def generate_by_id():
     seances_valides = sorted(seances_valides, key=lambda x:(x.get("Charge",2),x.get("Durée (min)",30)))
 
     # === ARCHIVAGE ===
-    existing = TABLE_SEANCES.all(formula=f"FIND('{record_id}', ARRAYJOIN({{Coureur}}))")
+    filter_sessions = _filter_formula_sessions_for_coureur(record_id)
+    existing = TABLE_SEANCES.all(formula=filter_sessions)
     had_existing = len(existing) > 0
 
     if had_existing:
@@ -181,13 +182,14 @@ def generate_by_id():
                 "Nom séance": f.get("Nom séance"),
                 "Clé séance": f.get("Clé séance"),
                 "Phase": f.get("Phase"),
-                "Type": type_final,
+                "Type séance": type_final,  # ✅ Champ correct
                 "Durée (min)": f.get("Durée (min)"),
                 "Charge": f.get("Charge", 2),
                 "🧠 Message_coach": f.get("🧠 Message_coach (modèle)"),
                 "Semaine": semaine,
                 "Jour planifié": j
             })
+
             total_crees += 1
 
     # === FIN DU TRAITEMENT → API RESPONSE ===
