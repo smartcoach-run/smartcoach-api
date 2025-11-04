@@ -166,25 +166,29 @@ def generate_by_id():
         for s in existing:
             TABLE_SEANCES.delete(s["id"])
 
-    # === GÉNÉRATION ===
-    total_crees = 0
-    for semaine in range(1, nb_semaines+1):
-        bloc = seances_valides[:max(1, jours_final)]
-        for j, f in enumerate(bloc, start=1):
+# === GÉNÉRATION ===
+total_crees = 0
+for semaine in range(1, nb_semaines+1):
+    bloc = seances_valides[:max(1, jours_final)]
+    for j, f in enumerate(bloc, start=1):
 
-            type_brut = f.get("Type séance") or f.get("Type")
-            type_final = type_brut[0] if isinstance(type_brut, list) else type_brut
+        # Récupération robuste du type
+        type_brut = f.get("Type séance") or f.get("Type")
+        type_final = type_brut[0] if isinstance(type_brut, list) else type_brut
 
-            TABLE_SEANCES.create({
-                "Coureur":[record_id],
-                "Nom séance": f.get("Nom séance"),
-                "Type": type_final,
-                "Durée (min)": f.get("Durée (min)"),
-                "Charge": f.get("Charge",2),
-                "Semaine": semaine,
-                "Jour planifié": j
-            })
-            total_crees += 1
+        TABLE_SEANCES.create({
+            "Coureur": [record_id],
+            "Nom séance": f.get("Nom séance"),
+            "Clé séance": f.get("Clé séance"),                  # *** RESTAURÉ ***
+            "Phase": f.get("Phase"),                            # *** RESTAURÉ ***
+            "Type": type_final,                                 # (on utilise bien le champ Airtable existant)
+            "Durée (min)": f.get("Durée (min)"),
+            "Charge": f.get("Charge", 2),
+            "🧠 Message_coach": f.get("🧠 Message_coach (modèle)"),  # *** RESTAURÉ ***
+            "Semaine": semaine,
+            "Jour planifié": j
+        })
+        total_crees += 1
 
     return jsonify({
         "status":"ok",
