@@ -142,8 +142,7 @@ def generate_by_id():
     seances_valides = sorted(seances_valides, key=lambda x:(x.get("Charge",2),x.get("Durée (min)",30)))
 
     # === ARCHIVAGE ===
-    existing = TABLE_SEANCES.all(
-    formula=f"FIND('{record_id}', ARRAYJOIN({{Coureur}}))"
+    existing = TABLE_SEANCES.all(formula=f"FIND('{record_id}', ARRAYJOIN({{Coureur}}))")
     had_existing = len(existing) > 0
 
     if had_existing:
