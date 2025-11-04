@@ -114,3 +114,6 @@ def generate_by_id():
         "total": total_crees,
         "message_id": "SC_COACH_021"
     })
+    
+ if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
