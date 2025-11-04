@@ -12,7 +12,7 @@ TABLE_COUR = Table(API_KEY, BASE_ID, "👤 Coureurs")
 TABLE_SEANCES = Table(API_KEY, BASE_ID, "🏋️ Séances")
 TABLE_ARCHIVES = Table(API_KEY, BASE_ID, "🗄️ Archives Séances")
 TABLE_MODELES = Table(API_KEY, BASE_ID, "📘 Séances types")
-
+TABLE_SEANCES_TYPES = Table(API_KEY, BASE_ID, "📘 Séances types")
 
 @app.route("/generate_by_id", methods=["POST"])
 def generate_by_id():
