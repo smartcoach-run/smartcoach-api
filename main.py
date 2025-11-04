@@ -5,14 +5,23 @@ import os
 
 app = Flask(__name__)
 
-API_KEY = os.environ.get("AIRTABLE_API_KEY")
-BASE_ID = "appv3LMhK5FaGEYCH"
+import os
+from pyairtable import Table
 
-TABLE_COUR = Table(API_KEY, BASE_ID, "👤 Coureurs")
-TABLE_SEANCES = Table(API_KEY, BASE_ID, "🏋️ Séances")
-TABLE_ARCHIVES = Table(API_KEY, BASE_ID, "🗄️ Archives Séances")
-TABLE_MODELES = Table(API_KEY, BASE_ID, "📘 Séances types")
-TABLE_SEANCES_TYPES = Table(API_KEY, BASE_ID, "📘 Séances types")
+API_KEY = os.environ.get("AIRTABLE_KEY")
+BASE_ID = os.environ.get("BASE_ID")
+
+TABLE_COUR_NAME = os.environ.get("TABLE_COUR")
+TABLE_SEANCES_NAME = os.environ.get("TABLE_SEANCES")
+TABLE_ARCHIVES_NAME = os.environ.get("TABLE_ARCHIVES")
+TABLE_MODELES_NAME = os.environ.get("TABLE_MODELES")
+TABLE_SEANCES_TYPES_NAME = os.environ.get("TABLE_SEANCES_TYPES")
+
+TABLE_COUR = Table(API_KEY, BASE_ID, TABLE_COUR_NAME)
+TABLE_SEANCES = Table(API_KEY, BASE_ID, TABLE_SEANCES_NAME)
+TABLE_ARCHIVES = Table(API_KEY, BASE_ID, TABLE_ARCHIVES_NAME)
+TABLE_MODELES = Table(API_KEY, BASE_ID, TABLE_MODELES_NAME)
+TABLE_SEANCES_TYPES = Table(API_KEY, BASE_ID, TABLE_SEANCES_TYPES_NAME)
 
 @app.route("/generate_by_id", methods=["POST"])
 def generate_by_id():
