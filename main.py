@@ -183,28 +183,39 @@ def get_structure_rows(phase, niveau, objectif, freq):
     return sorted(rows, key=lambda r: r.get("fields", {}).get("Ordre", 0))
 
 def get_structure_rows(phase, niveau, objectif, freq):
-    # Phase: accepter soit la phase exacte (Base1/Base2), soit "Prépa générale"
+    """
+    Récupère les séances types correspondant à la phase, niveau, objectif, fréquence.
+    Accepte Base1/Base2 OU Prépa générale dans Airtable.
+    Compatible single/multi-select pour Objectif.
+    """
+
+    # Phase : autoriser Base1/Base2 OU Prépa générale
     if phase in ["Base1", "Base2"]:
-        cond_phase = "OR({Phase} = 'Prépa générale', {Phase} = '%s')" % phase
+        cond_phase = f"OR({{Phase}} = 'Prépa générale', {{Phase}} = '{phase}')"
     else:
-        cond_phase = "{Phase} = '%s'" % phase
+        cond_phase = f"{{Phase}} = '{phase}'"
 
-    cond_niveau = "{Niveau} = '%s'" % niveau
+    # Niveau
+    cond_niveau = f"{{Niveau}} = '{niveau}'"
 
-    # Objectif: compatible single/multi-select
-    cond_obj = "OR({Objectif} = '%s', FIND('%s', ARRAYJOIN({Objectif}, ',')))" % (objectif, objectif)
+    # Objectif (multi-select / single-select safe)
+    cond_obj = f"OR({{Objectif}} = '{objectif}', FIND('{objectif}', ARRAYJOIN({{Objectif}}, ',')))"
 
-    cond_freq = "{fréquence cible} = %d" % freq
+    # Fréquence (numérique)
+    cond_freq = f"{{fréquence cible}} = {freq}"
 
-    formula = "AND(%s, %s, %s, %s)" % (cond_phase, cond_niveau, cond_obj, cond_freq)
+    formula = f"AND({cond_phase}, {cond_niveau}, {cond_obj}, {cond_freq})"
     print("📌 DEBUG FORMULA:", formula)
 
     rows = TABLE_SEANCES_TYPES.all(formula=formula)
+
     if not rows:
         raise ValueError(
-            f"Aucune séance type trouvée pour Phase={phase}, Niveau={niveau}, Objectif={objectif}, Fréquence={freq}"
+            f"Aucune séance type trouvée pour Phase={phase}, Niveau={niveau}, "
+            f"Objectif={objectif}, Fréquence={freq}"
         )
-    return sorted(rows, key=lambda r: r.get("fields", {}).get("Ordre", 0))
+
+    return sorted(rows, key=lambda r: r.get('fields', {}).get('Ordre', 0))
 
 def OR_compat(*args):
     # petit OR qui fonctionne comme pyairtable.formulas.OR (mais inline)
