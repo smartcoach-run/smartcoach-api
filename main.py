@@ -169,6 +169,8 @@ def get_structure_rows(phase, niveau, objectif, freq):
 
     formula = f"AND({cond_phase}, {cond_niveau}, {cond_obj}, {cond_freq})"
 
+    print("📌 DEBUG FORMULA =>", formula)
+
     print("\n🔎 Airtable filter used:")
     print(formula)
 
