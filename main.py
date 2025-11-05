@@ -146,42 +146,29 @@ def first_nonempty(fields: Dict[str, Any], *names: str, default=None):
 # Sélection de structure + pick séance type
 # -----------------------------------------------------------------------------
 
-def get_structure_rows(phase: str, niveau: str, objectif: str, frequence: int) -> List[Dict[str, Any]]:
+def get_structure_rows(phase, niveau, objectif, freq):
     """
-    On cherche dans 📐 Structure Séances les lignes qui matchent :
-    - Phase
-    - Niveau
-    - Objectif
-    - Fréquence (si colonne présente ; sinon on l’ignore)
-    On renvoie trié par 'Ordre_progression' si dispo.
+    Retourne les lignes Structure Séances correspondant :
+    1) À la ligne Séances types filtrée par (phase, niveau, objectif, fréquence)
+    2) Puis aux enregistrements liés dans Structure Séances
     """
-    # Certaines bases n'ont pas 'Fréquence' en colonne ; on fait un essai "avec" puis fallback "sans"
-    formula_with_freq = AND(
-        match({"Phase": phase}),
-        match({"Niveau": niveau}),
-        match({"Objectif": objectif}),
-        match({"Fréquence": frequence})
-    )
-    try:
-        rows = TABLE_STRUCTURE.all(formula=formula_with_freq)
-    except Exception:
-        rows = []
 
-    if not rows:
-        # Fallback sans fréquence
-        formula_no_freq = AND(
-            match({"Phase": phase}),
-            match({"Niveau": niveau}),
-            match({"Objectif": objectif})
-        )
-        rows = TABLE_STRUCTURE.all(formula=formula_no_freq)
+    # On cherche d'abord la bonne ligne dans 📘 Séances types
+    formula_types = f"AND({{Phase}}='{phase}', {{Niveau}}='{niveau}', {{Objectif}}='{objectif}', {{Jours/sem}}={freq})"
+    type_rows = TABLE_SEANCES_TYPES.all(formula=formula_types)
 
-    # Tri par ordre si présent
-    def _order(r):
-        f = r.get("fields", {})
-        return f.get("Ordre_progression") or f.get("Ordre") or 0
-    rows.sort(key=_order)
-    return rows
+    if not type_rows:
+        raise ValueError(f"Aucune séance type trouvée pour Phase={phase}, Niveau={niveau}, Objectif={objectif}, Fréquence={freq}")
+
+    seance_type = type_rows[0]  # on prend la première ligne correspondante
+    key = seance_type['fields'].get('Clé séance')
+
+    if not key:
+        raise ValueError("La séance type filtrée n'a pas de 'Clé séance'")
+
+    # Maintenant on cherche dans 📑 Structure Séances les lignes qui pointent vers cette clé
+    formula_struct = f"FIND('{key}', ARRAYJOIN({{Séances types}}))"
+    return TABLE_STRUCTURE.all(formula=formula_struct)
 
 def pick_session_from_type(short_type: str) -> Optional[Dict[str, Any]]:
     """
