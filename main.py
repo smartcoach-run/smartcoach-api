@@ -149,42 +149,38 @@ def first_nonempty(fields: Dict[str, Any], *names: str, default=None):
 def get_structure_rows(phase, niveau, objectif, freq):
     """
     Récupère les séances types correspondant à la phase, niveau, objectif, fréquence.
-    Gère le cas où Phase=Base1/Base2 => Prépa générale en lookup.
+    Gère Base1/Base2 => Prépa générale.
+    Gère Objectif (multi-select).
     """
 
-    # --- 1) Normalisation Phase ---
+    # Normalisation Phase côté structure
     phase_lookup = phase
     if phase in ["Base1", "Base2"]:
         phase_lookup = "Prépa générale"
 
-    # --- 2) Conditions de filtre Airtable ---
-    cond_phase = f"{{Phase}} = '{phase_lookup}'"
-    cond_niveau = f"{{Niveau}} = '{niveau}'"
-    
-    # Multi-select Objectif → utiliser FIND + ARRAYJOIN
-    cond_obj = f"FIND('{objectif}', ARRAYJOIN({{Objectif}}))"
+    # ---- Construction du filtre Airtable ----
+    cond_phase   = f"{{Phase}} = '{phase_lookup}'"
+    cond_niveau  = f"{{Niveau}} = '{niveau}'"
 
-    # Champ numérique => pas de guillemets
-    cond_freq = f"{{fréquence cible}} = {freq}"
+    # Objectif = multi-select → on cherche l’item dans la liste
+    cond_obj     = f"FIND('{objectif}', ARRAYJOIN({{Objectif}}, ','))"
+
+    # fréquence cible = champ numérique → sans quotes
+    cond_freq    = f"{{fréquence cible}} = {freq}"
 
     formula = f"AND({cond_phase}, {cond_niveau}, {cond_obj}, {cond_freq})"
 
-    print("📌 DEBUG FORMULA =>", formula)
+    print("📌 DEBUG FORMULA:", formula)
 
-    print("\n🔎 Airtable filter used:")
-    print(formula)
-
-    # --- 3) Requête ---
     rows = TABLE_SEANCES_TYPES.all(formula=formula)
 
-    # --- 4) Retour ou erreur ---
     if not rows:
         raise ValueError(
             f"Aucune séance type trouvée pour Phase={phase} (lookup={phase_lookup}), "
             f"Niveau={niveau}, Objectif={objectif}, Fréquence={freq}"
         )
 
-    return rows
+    return sorted(rows, key=lambda r: r.get("fields", {}).get("Ordre", 0))
 
 def pick_session_from_type(short_type: str) -> Optional[Dict[str, Any]]:
     """
