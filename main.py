@@ -154,7 +154,7 @@ def get_structure_rows(phase, niveau, objectif, freq):
     """
 
     # On cherche d'abord la bonne ligne dans 📘 Séances types
-    formula_types = f"AND({{Phase}}='{phase}', {{Niveau}}='{niveau}', {{Objectif}}='{objectif}', {{Jours/sem}}={freq})"
+    formula_types = f"AND({{Phase}}='{phase}', {{Niveau}}='{niveau}', {{Objectif}}='{objectif}')"
     type_rows = TABLE_SEANCES_TYPES.all(formula=formula_types)
 
     if not type_rows:
