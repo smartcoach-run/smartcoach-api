@@ -183,34 +183,27 @@ def get_structure_rows(phase, niveau, objectif, freq):
     return sorted(rows, key=lambda r: r.get("fields", {}).get("Ordre", 0))
 
 def get_structure_rows(phase, niveau, objectif, freq):
-    """
-    Récupère les séances types correspondant à la phase, niveau, objectif, fréquence.
-    Gère Base1/Base2 => Prépa générale.
-    Gère Objectif même si champ texte / single-select / multi-select.
-    """
+    # Phase: accepter soit la phase exacte (Base1/Base2), soit "Prépa générale"
+    if phase in ["Base1", "Base2"]:
+        cond_phase = "OR({Phase} = 'Prépa générale', {Phase} = '%s')" % phase
+    else:
+        cond_phase = "{Phase} = '%s'" % phase
 
-    # Normalisation Phase
-    phase_lookup = "Prépa générale" if phase in ["Base1", "Base2"] else phase
+    cond_niveau = "{Niveau} = '%s'" % niveau
 
-    cond_phase  = f"{{Phase}} = '{phase_lookup}'"
-    cond_niveau = f"{{Niveau}} = '{niveau}'"
+    # Objectif: compatible single/multi-select
+    cond_obj = "OR({Objectif} = '%s', FIND('%s', ARRAYJOIN({Objectif}, ',')))" % (objectif, objectif)
 
-    # ✅ Nouveau filtre Objectif Compatible tous formats
-    cond_obj = f"OR({{Objectif}} = '{objectif}', FIND('{objectif}', {{Objectif}} & ''))"
+    cond_freq = "{fréquence cible} = %d" % freq
 
-    cond_freq = f"{{fréquence cible}} = {freq}"
-
-    formula = f"AND({cond_phase}, {cond_niveau}, {cond_obj}, {cond_freq})"
+    formula = "AND(%s, %s, %s, %s)" % (cond_phase, cond_niveau, cond_obj, cond_freq)
     print("📌 DEBUG FORMULA:", formula)
 
     rows = TABLE_SEANCES_TYPES.all(formula=formula)
-
     if not rows:
         raise ValueError(
-            f"Aucune séance type trouvée pour Phase={phase} (lookup={phase_lookup}), "
-            f"Niveau={niveau}, Objectif={objectif}, Fréquence={freq}"
+            f"Aucune séance type trouvée pour Phase={phase}, Niveau={niveau}, Objectif={objectif}, Fréquence={freq}"
         )
-
     return sorted(rows, key=lambda r: r.get("fields", {}).get("Ordre", 0))
 
 def OR_compat(*args):
