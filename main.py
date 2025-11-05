@@ -3,7 +3,6 @@ from flask import Flask, request, jsonify
 from datetime import datetime, timedelta
 from dateutil.parser import parse
 from pyairtable import Table
-from pyairtable.formulas import match
 
 # -------------------------
 #   CONFIGURATION AIRTABLE
@@ -13,10 +12,10 @@ BASE_ID = os.environ.get("AIRTABLE_BASE_ID")
 
 TABLE_COUR           = Table(API_KEY, BASE_ID, "👤 Coureurs")
 TABLE_SEANCES        = Table(API_KEY, BASE_ID, "🏋️ Séances")
+TABLE_ARCHIVES       = Table(API_KEY, BASE_ID, "🗄️ Archives")
 TABLE_SEANCES_TYPES  = Table(API_KEY, BASE_ID, "📘 Séances types")
 TABLE_STRUCTURE      = Table(API_KEY, BASE_ID, "📐 Structure Séances")
 TABLE_MAILS          = Table(API_KEY, BASE_ID, "📬 Mails")
-TABLE_ARCHIVES = Table(API_KEY, BASE_ID, "🗄️ Archives")
 
 app = Flask(__name__)
 
@@ -30,13 +29,21 @@ def safe(f, k, default=None):
     return default if v in (None, "", []) else v
 
 def archive_records(records, version):
+    """
+    Archivage physique :
+    - copie chaque séance dans 🗄️ Archives
+    - conserve le lien Coureur (✱ validé hier)
+    - historise via Version plan
+    - supprime la séance active de 🏋️ Séances
+    """
+    count = 0
     for r in records:
         fields = r["fields"].copy()
         fields["Version plan"] = version
-        fields.pop("Coureur", None)  # on laisse Airtable gérer les liens propres
         TABLE_ARCHIVES.create(fields)
         TABLE_SEANCES.delete(r["id"])
-    return len(records)
+        count += 1
+    return count
 
 def get_structure(phase, niveau, objectif, frequence):
     formula = f"""
@@ -57,9 +64,10 @@ def get_structure(phase, niveau, objectif, frequence):
             continue
         out.setdefault(sem, []).append(cle)
 
-    # SL en dernier dans la semaine, sinon ordre naturel
-    for k,v in out.items():
+    # SL en dernier dans la semaine
+    for k, v in out.items():
         out[k] = sorted(v, key=lambda c: "SL" in c)
+
     return dict(sorted(out.items(), key=lambda x: x[0]))
 
 def assign_days(structure, jours):
@@ -123,11 +131,9 @@ def generate_by_id():
 
     frequence = max(1, len(jours_dispo))
 
-    # --- structure & assignation ---
     structure = get_structure(phase, niveau, objectif, frequence)
     plan = assign_days(structure, jours_dispo)
 
-    # --- dictionnaire séances types ---
     types_dict = {}
     for r in TABLE_SEANCES_TYPES.all():
         f = r["fields"]
@@ -140,16 +146,12 @@ def generate_by_id():
                 "Coach": safe(f, "🧠 Message coach", "")
             }
 
-    # --- archive version precedente ---
     existing = TABLE_SEANCES.all(formula=f"{{Coureur}} = '{record_id}'")
-    archived = 0
-    if existing:
-        archived = archive_records(existing, version)
+    archived = archive_records(existing, version) if existing else 0
 
     new_version = version + 1
     TABLE_COUR.update(record_id, {"Version plan": new_version})
 
-    # --- create séances + mails ---
     mails = []
     created = 0
 
@@ -192,8 +194,6 @@ def generate_by_id():
         "jours/sem": frequence,
     })
 
-# -------------------------
-#   LAUNCH
-# -------------------------
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
