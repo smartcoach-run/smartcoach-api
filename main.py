@@ -231,7 +231,7 @@ def archive_existing_for_runner(record_id: str, version_actuelle: int) -> int:
     if not record_id:
         return 0
 
-    existing = TABLE_SEANCES.all(formula=match({"Coureur": [record_id]}))
+    existing = TABLE_SEANCES.all(formula=match({"Coureur": record_id}))
     if not existing:
         return 0
 
