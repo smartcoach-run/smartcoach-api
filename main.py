@@ -155,11 +155,8 @@ def get_structure_rows(phase, niveau, objectif, frequence):
     - Fréquence (nb séances/semaine)
     """
 
-    # Convertit phase dynamique en phase stockée dans Airtable
-    if phase in ["Base1", "Base2"]:
-        phase_lookup = "Prépa générale"
-    else:
-        phase_lookup = phase
+    # On utilise directement Phase telle qu'indiquée dans Séances Types
+    phase_lookup = phase #Aucune conversion
 
     # Filtre Airtable — champs exacts présents dans 📘 Séances types
     formula = (
