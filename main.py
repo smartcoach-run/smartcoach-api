@@ -81,12 +81,41 @@ def to_utc_iso(dt: datetime) -> str:
 
 def parse_date_ddmmyyyy(value: str) -> datetime:
     """
-    Attend 'dd/mm/yyyy'. Si vide, on prend aujourd’hui (UTC).
+    Gère automatiquement :
+    - dd/mm/yyyy (format formulaire)
+    - yyyy-mm-dd (format Airtable natif)
+    - datetime déjà parsée
+    - fallback = aujourd’hui UTC
     """
     if not value:
         return datetime.now(timezone.utc)
-    d, m, y = value.split("/")
-    return datetime(int(y), int(m), int(d), tzinfo=timezone.utc)
+
+    # Si déjà datetime → on renvoie tel quel
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
+
+    value = str(value).strip()
+
+    # Format Airtable → yyyy-mm-dd
+    if re.match(r"^\d{4}-\d{2}-\d{2}", value):
+        try:
+            y, m, d = value.split("-")
+            return datetime(int(y), int(m), int(d), tzinfo=timezone.utc)
+        except Exception:
+            pass
+
+    # Format dd/mm/yyyy
+    if "/" in value:
+        try:
+            d, m, y = value.split("/")
+            return datetime(int(y), int(m), int(d), tzinfo=timezone.utc)
+        except Exception:
+            pass
+
+    # Fallback robuste
+    return datetime.now(timezone.utc)
 
 def jours_dispo(fields: Dict[str, Any]) -> List[str]:
     # Jours_disponibles (ex : ["Vendredi","Dimanche"])
