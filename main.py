@@ -16,6 +16,7 @@ TABLE_SEANCES        = Table(API_KEY, BASE_ID, "🏋️ Séances")
 TABLE_SEANCES_TYPES  = Table(API_KEY, BASE_ID, "📘 Séances types")
 TABLE_STRUCTURE      = Table(API_KEY, BASE_ID, "📐 Structure Séances")
 TABLE_MAILS          = Table(API_KEY, BASE_ID, "📬 Mails")
+TABLE_ARCHIVES = Table(API_KEY, BASE_ID, "🗄️ Archives")
 
 app = Flask(__name__)
 
@@ -30,7 +31,11 @@ def safe(f, k, default=None):
 
 def archive_records(records, version):
     for r in records:
-        TABLE_SEANCES.update(r["id"], {"Version plan": version})
+        fields = r["fields"].copy()
+        fields["Version plan"] = version
+        fields.pop("Coureur", None)  # on laisse Airtable gérer les liens propres
+        TABLE_ARCHIVES.create(fields)
+        TABLE_SEANCES.delete(r["id"])
     return len(records)
 
 def get_structure(phase, niveau, objectif, frequence):
