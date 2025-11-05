@@ -146,44 +146,41 @@ def first_nonempty(fields: Dict[str, Any], *names: str, default=None):
 # Sélection de structure + pick séance type
 # -----------------------------------------------------------------------------
 
-def get_structure_rows(phase, niveau, objectif, frequence):
+def get_structure_rows(phase, niveau, objectif, freq):
     """
-    Retourne les séances types correspondant à :
-    - Phase (avec conversion Base1/Base2 → Prépa générale)
-    - Niveau
-    - Objectif
-    - Fréquence (nb séances/semaine)
+    Récupère les séances types correspondant à la phase, niveau, objectif, fréquence.
+    Gère le cas où Phase=Base1/Base2 => Prépa générale en lookup.
     """
 
-    # On utilise directement Phase telle qu'indiquée dans Séances Types
-    phase_lookup = phase #Aucune conversion
+    # --- 1) Normalisation Phase ---
+    phase_lookup = phase
+    if phase in ["Base1", "Base2"]:
+        phase_lookup = "Prépa générale"
 
-    # Filtre Airtable — champs exacts présents dans 📘 Séances types
-    formula = (
-        f"AND("
-        f"{{Phase}} = '{phase_lookup}',"
-        f"{{Niveau}} = '{niveau}',"
-        f"{{Objectif}} = '{objectif}',"
-        f"{{Fréquence cible}} = {frequence}"
-        f")"
-    )
+    # --- 2) Conditions de filtre Airtable ---
+    cond_phase = f"{{Phase}} = '{phase_lookup}'"
+    cond_niveau = f"{{Niveau}} = '{niveau}'"
+    
+    # Multi-select Objectif → utiliser FIND + ARRAYJOIN
+    cond_obj = f"FIND('{objectif}', ARRAYJOIN({{Objectif}}))"
 
+    # Champ numérique => pas de guillemets
+    cond_freq = f"{{fréquence cible}} = {freq}"
+
+    formula = f"AND({cond_phase}, {cond_niveau}, {cond_obj}, {cond_freq})"
+
+    print("\n🔎 Airtable filter used:")
+    print(formula)
+
+    # --- 3) Requête ---
     rows = TABLE_SEANCES_TYPES.all(formula=formula)
 
+    # --- 4) Retour ou erreur ---
     if not rows:
         raise ValueError(
             f"Aucune séance type trouvée pour Phase={phase} (lookup={phase_lookup}), "
-            f"Niveau={niveau}, Objectif={objectif}, Fréquence={frequence}"
+            f"Niveau={niveau}, Objectif={objectif}, Fréquence={freq}"
         )
-
-    # → Ici : filtrage Base1/Base2 effectué **côté script**
-    # Base1 = EF + SL courtes + technique
-    # Base2 = on autorise SEUIL léger & variations
-    if phase == "Base1":
-        rows = [r for r in rows if r["fields"].get("Catégorie courante") in ["EF", "SL", "TECH"]]
-
-    elif phase == "Base2":
-        rows = [r for r in rows if r["fields"].get("Catégorie courante") in ["EF", "SL", "TECH", "SEU"]]
 
     return rows
 
