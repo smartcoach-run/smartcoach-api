@@ -118,13 +118,13 @@ def generate_by_id():
     record_id = data.get("record_id")
 
     coureur = TABLE_COUR.get(record_id)["fields"]
-    email            = safe(coueur, "Email", "")
-    niveau           = safe(coueur, "Niveau", "Reprise")
-    objectif         = safe(coueur, "Objectif", "10K")
-    phase            = safe(coueur, "Phase", "Base1")
-    jours_dispo      = safe(coueur, "Jours disponibles", [])
-    date_start       = safe(coueur, "Date début plan")
-    version          = safe(coueur, "Version plan", 0) or 0
+    email            = safe(coureur, "Email", "")
+    niveau           = safe(coureur, "Niveau", "Reprise")
+    objectif         = safe(coureur, "Objectif", "10K")
+    phase            = safe(coureur, "Phase", "Base1")
+    jours_dispo      = safe(coureur, "Jours disponibles", [])
+    date_start       = safe(coureur, "Date début plan")
+    version          = safe(coureur, "Version plan", 0) or 0
 
     if not date_start:
         return jsonify({"error":"Date début plan manquante"}), 400
@@ -197,4 +197,3 @@ def generate_by_id():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
-    
