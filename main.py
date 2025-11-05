@@ -142,6 +142,21 @@ def first_nonempty(fields: Dict[str, Any], *names: str, default=None):
             return fields[n]
     return default
 
+def pick_session_from_type(short_type: str):
+    """
+    Fallback simple : récupère une séance type via le champ "Type séance (court)".
+    Renvoie le premier match trouvé.
+    """
+    if not short_type:
+        return None
+
+    formula = f"{{Type séance (court)}} = '{short_type}'"
+    rows = TABLE_SEANCES_TYPES.all(formula=formula)
+
+    if rows:
+        return rows[0]
+    return None
+
 # -----------------------------------------------------------------------------
 # Sélection de structure + pick séance type
 # -----------------------------------------------------------------------------
