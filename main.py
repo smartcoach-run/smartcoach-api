@@ -345,7 +345,7 @@ def generate_by_id():
     nb_archives = archive_existing_for_runner(record_id, version_actuelle)
 
     # 3) Récup structure (liste ordonnée)
-    structure_rows = get_structure_rows(phase, niveau, objectif, freq)
+    structure_rows = get_structure_rows(phase)
     if not structure_rows:
         return jsonify(error="Aucune structure trouvée", niveau=niveau, objectif=objectif, phase=phase, frequence=freq), 422
 
