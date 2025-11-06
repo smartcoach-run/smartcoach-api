@@ -75,6 +75,12 @@ TABLE_MESSAGES_SMARTCOACH   = get_table("TABLE_MESSAGES_SMARTCOACH" , "🗂️ M
 
 WEEKDAYS_FR = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
 
+PHASE_KEY = {
+    "Prépa générale": "PG",
+    "Prépa spécifique": "PS",
+    "Affûtage": "AF"
+}
+
 def to_utc_iso(dt: datetime) -> str:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
@@ -281,7 +287,7 @@ def archive_existing_for_runner(record_id: str, version_actuelle: int) -> int:
     if not record_id:
         return 0
 
-    existing = TABLE_SEANCES.all(formula=match({"Coureur": record_id}))
+    existing = TABLE_SEANCES.all(formula=f"SEARCH('{record_id}', ARRAYJOIN({{Coureur}}, ','))")
     if not existing:
         return 0
 
@@ -354,6 +360,13 @@ def root():
 def health():
     return jsonify(ok=True, t=to_utc_iso(datetime.now(timezone.utc)))
 
+def get_message_coach(message_key):
+    formula = f"{{Clé Message}} = '{message_key}'"
+    records = TABLE_MESSAGES_COACH.all(formula=formula)
+    if records:
+        return records[0]["fields"].get("Message (template)", "")
+    return ""
+
 # -----------------------------------------------------------------------------
 # Endpoint principal
 # -----------------------------------------------------------------------------
@@ -377,6 +390,16 @@ def generate_by_id():
         return jsonify(error="Coureur introuvable"), 404
 
     cf = coureur_rec.get("fields", {})
+
+    # Limite mensuelle de créations (champ → Nb_demandes_mois)
+    nb_demandes = int_field(cf, "Nb_demandes_mois", "Nb demandes mois", default=0)
+    limite = int_field(cf, "Quota_mensuel", "Quota mensuel", default=4)
+
+    if nb_demandes >= limite:
+        return jsonify(error="❌ Quota atteint : création de plan non autorisée",
+                       message_id="SC_COACH_QUOTA",
+                       nb_demandes=nb_demandes,
+                       quota=limite), 403
 
     niveau   = first_nonempty(cf, "Niveau", "🧭 Niveau", default="Reprise")
     objectif = first_nonempty(cf, "Objectif", "🎯 Objectif", default="10K")
@@ -521,6 +544,21 @@ def generate_by_id():
                 "Date": date_obj.isoformat(),
                 "Version plan": nouvelle_version
             }
+            # 🧠 Message coach (contextuel, lié à la phase et la progression)
+            msg_coach = get_message_coach_for(
+                phase=phase_row,
+                semaine=week_idx,      # important : week_idx commence à 1 → OK
+                niveau=niveau,
+                objectif=objectif
+            )
+            if msg_coach:
+                payload["🧠 Message coach"] = msg_coach
+
+            # 🗓️ Message hebdomadaire (playlist M1 / M2 / M3 / M4)
+            msg_week = get_weekly_message(week_idx)
+            if msg_week:
+                payload["🧠 Message hebdo"] = msg_week
+            
             TABLE_SEANCES.create(payload)
             previews.append(payload)
             created += 1
