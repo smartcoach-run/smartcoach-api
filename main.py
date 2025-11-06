@@ -382,7 +382,7 @@ def generate_by_id():
         grp_autres = TABLE_GROUPES.first(formula="{Nom du groupe} = 'Autres'")
         if grp_autres:
             groupe_id = grp_autres["id"]
-            TABLE_COUR.update(record_id, {"Groupe": [groupe_id]})
+            TABLE_COUR.update(record_id, {"🔗 Groupe": [groupe_id]})
         else:
             return jsonify({"error": "❌ Aucun groupe défini et impossible de trouver 'Autres'."})
 
@@ -604,4 +604,3 @@ def generate_by_id():
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
-    
