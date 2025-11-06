@@ -519,16 +519,18 @@ def generate_by_id():
 
             msg_coach = get_message_coach_for(
                 phase=phase_row,
-                semaine=week_idx,
+                semaine=week_idx + 1,   # ✅ Semaine en 1-based
                 niveau=niveau,
                 objectif=objectif
             )
-            if msg_coach:
-                payload["🧠 Message coach"] = msg_coach
 
-            msg_week = get_weekly_message(week_idx)
+            if msg_coach:
+                payload["Message coach"] = msg_coach
+
+            msg_week = get_weekly_message(week_idx + 1)  # ✅
+
             if msg_week:
-                payload["🧠 Message hebdo"] = msg_week
+                payload["Message hebdo"] = msg_week
 
             TABLE_SEANCES.create(payload)
             previews.append(payload)
@@ -567,11 +569,11 @@ def generate_by_id():
             objectif=objectif
         )
         if msg_coach:
-            payload["🧠 Message coach"] = msg_coach
+            payload["Message coach"] = msg_coach
 
         msg_week = get_weekly_message(week_idx)
         if msg_week:
-            payload["🧠 Message hebdo"] = msg_week
+            payload["Message hebdo"] = msg_week
 
         TABLE_SEANCES.create(payload)
         previews.append(payload)
