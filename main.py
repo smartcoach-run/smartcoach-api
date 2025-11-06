@@ -161,26 +161,23 @@ def pick_session_from_type(short_type: str):
 # Sélection de structure + pick séance type
 # -----------------------------------------------------------------------------
 
-def get_structure_rows(phase):
-    """
-    Retourne l'ordre des séances pour une phase donnée
-    depuis 📐 Structure Séances.
-    Base1 / Base2 → mappés sur Prépa générale.
-    """
-    # Mapping des phases
-    if phase in ["Base1", "Base2"]:
-        phase_lookup = "Prépa générale"
-    else:
-        phase_lookup = phase
+def get_structure_rows(phase, niveau, objectif, freq):
+    cond_niveau = f"{{Niveau}} = '{niveau}'"
+    cond_obj = f"OR({{Objectif}} = '{objectif}', FIND('{objectif}', ARRAYJOIN({{Objectif}}, ',')))"
+    cond_freq = f"{{fréquence cible}} = {freq}"
 
-    formula = f"{{Phase}} = '{phase_lookup}'"
+    # Ne pas filtrer sur Phase pour sélectionner la séance type
+    formula = f"AND({cond_niveau}, {cond_obj}, {cond_freq})"
+    print("📌 DEBUG FORMULA:", formula)
+
     rows = TABLE_STRUCTURE.all(formula=formula)
 
     if not rows:
-        raise ValueError(f"Aucune structure trouvée pour Phase={phase} (lookup={phase_lookup})")
+        raise ValueError(
+            f"Aucune séance type trouvée pour Niveau={niveau}, Objectif={objectif}, Fréquence={freq}"
+        )
 
-    # Tri par ordre (si présent)
-    return sorted(rows, key=lambda r: r.get("fields", {}).get("Ordre", 0))
+    return sorted(rows, key=lambda r: r.get('fields', {}).get('Ordre', 0))
 
 def OR_compat(*args):
     # petit OR qui fonctionne comme pyairtable.formulas.OR (mais inline)
