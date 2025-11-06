@@ -415,14 +415,13 @@ def generate_by_id():
         else:
             stype = pick_session_from_type(short_type)
 
-        if not stype:
+        if not short_type:
             # si rien trouvé, on crée une séance générique EF 40' comme fallback minimal
-            nom = f"{short_type or 'EF'} – fallback 40'"
+            nom = f"EF – fallback 40'"
             payload = {
                 "Coureur": [record_id],
                 "Nom séance": nom,
-                "Type séance": short_type or "EF",
-                "Type séance (court)": short_type or "EF",
+                "Type séance (court)": "EF",      # ✅ On pose explicitement EF
                 "Phase": phase_row,
                 "Durée (min)": 40,
                 "Charge": 1,
@@ -430,6 +429,7 @@ def generate_by_id():
                 "Date": date_obj.date().isoformat(),
                 "Version plan": nouvelle_version
             }
+
             TABLE_SEANCES.create(payload)
             previews.append(payload)
             created += 1
