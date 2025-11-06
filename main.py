@@ -61,13 +61,14 @@ def get_table(env_name: str, *fallback_names: str) -> Table:
     raise RuntimeError(f"Impossible d'ouvrir la table {env_name}")
 
 # Tables (avec libellés FR compatibles avec tes captures)
-TABLE_COUR                  = get_table("TABLE_COUR"                , "👤 Coureurs", "Coureurs")
-TABLE_SEANCES               = get_table("TABLE_SEANCES"             , "🏋️ Séances", "Séances")
-TABLE_ARCHIVES              = get_table("TABLE_ARCHIVES"            , "📦 Archives Séances", "Archives Séances", "Archives")
-TABLE_SEANCES_TYPES         = get_table("TABLE_SEANCES_TYPES"       , "📘 Séances types", "Séances types")
-TABLE_STRUCTURE             = get_table("TABLE_STRUCTURE"           , "📐 Structure Séances", "Structure Séances")
-TABLE_MAILS                 = get_table("TABLE_MAILS"               , "✉️ Mails", "Mails")  # Optionnel, pas utilisé ici
-TABLE_MESSAGES_SMARTCOACH   = get_table("TABLE_MESSAGES_SMARTCOACH" , "🗂️ Messages SmartCoach", "Messages SmartCoach")
+TABLE_COUR                  = get_table("TABLE_COUR"                    , "👤 Coureurs", "Coureurs")
+TABLE_SEANCES               = get_table("TABLE_SEANCES"                 , "🏋️ Séances", "Séances")
+TABLE_ARCHIVES              = get_table("TABLE_ARCHIVES"                , "📦 Archives Séances", "Archives Séances", "Archives")
+TABLE_SEANCES_TYPES         = get_table("TABLE_SEANCES_TYPES"           , "📘 Séances types", "Séances types")
+TABLE_STRUCTURE             = get_table("TABLE_STRUCTURE"               , "📐 Structure Séances", "Structure Séances")
+TABLE_MAILS                 = get_table("TABLE_MAILS"                   , "✉️ Mails", "Mails")  # Optionnel, pas utilisé ici
+TABLE_MESSAGES_SMARTCOACH   = get_table("TABLE_MESSAGES_SMARTCOACH"     , "🗂️ Messages SmartCoach", "Messages SmartCoach")
+TABLE_GROUPES               = get_table("TABLE_GROUPES"                 , "👥 Groupes", "Groupes")
 
 # -----------------------------------------------------------------------------
 # Petits helpers
@@ -171,62 +172,34 @@ def safe_field(d: dict, candidates):
 
 def get_message_coach_for(phase: str, semaine: int, niveau: str, objectif: str):
     """
-    Lookup dans la table 🗂️ Messages SmartCoach en s'adaptant aux noms de champs existants.
-    Stratégie:
-      1) Si la table a une 'Clé recherche' (ou 'Clé'), on essaie plusieurs clés.
-      2) Sinon, on essaie un AND sur les colonnes Phase/Semaine/Niveau/Objectif si elles existent.
-    Retourne le texte (Message (template)/Message coach/Message) ou "" si rien.
+    Sélectionne le message coach via la colonne ID_Message dans 🗂️ Messages SmartCoach.
+    Format attendu : ID_Message = "<phase>|S<semaine>|<niveau>|<objectif>"
+    Exemple : "Prépa générale|S2|Débutant|10K"
     """
-    # 1) récupérer une ligne pour détecter les noms de champs de cette table
-    sample = TABLE_MESSAGES_SMARTCOACH.first()  # peut être None si table vide
-    if not sample:
-        return ""
+    # Normalisation légère
+    phase_key = phase.strip()
+    niveau_key = niveau.strip()
+    obj_key   = objectif.strip()
+    week_key  = f"S{semaine}"
 
-    f = sample.get("fields", {})
+    # Construction exacte de l'ID_Message
+    id_msg = f"{phase_key}|{week_key}|{niveau_key}|{obj_key}"
 
-    # noms possibles des colonnes
-    field_phase   = safe_field(f, ["Phase", "phase"])
-    field_week    = safe_field(f, ["Semaine", "Week", "Sem"])
-    field_level   = safe_field(f, ["Niveau", "Level"])
-    field_obj     = safe_field(f, ["Objectif", "Goal", "Objectif visé"])
-    field_key     = safe_field(f, ["Clé recherche", "Clé", "Cle", "Key", "LookupKey"])
+    row = TABLE_MESSAGES_SMARTCOACH.first(formula=f"{{ID_Message}} = '{id_msg}'")
+    if not row:
+        # fallback (sans objectif)
+        id_msg2 = f"{phase_key}|{week_key}|{niveau_key}"
+        row = TABLE_MESSAGES_SMARTCOACH.first(formula=f"{{ID_Message}} = '{id_msg2}'")
+        if not row:
+            return ""
 
-    # nom du champ texte
-    field_message = safe_field(f, ["Message (template)", "Message coach", "Message", "🧠 Message", "Texte"])
-
-    if not field_message:
-        return ""
-
-    # 1) Essai par clé de recherche si dispo
-    if field_key:
-        # On tente plusieurs variantes, de la plus spécifique à la plus large
-        candidates = [
-            f"Running|{phase}|{semaine}|{niveau}|{objectif}",
-            f"Running|{phase}|{semaine}|{niveau}",
-            f"{phase}|{semaine}|{niveau}|{objectif}",
-            f"{phase}|{semaine}|{niveau}",
-        ]
-        for key in candidates:
-            row = TABLE_MESSAGES_SMARTCOACH.first(formula=f"{{{field_key}}} = '{key}'")
-            if row:
-                return row.get("fields", {}).get(field_message, "") or ""
-
-    # 2) Essai par matching multi-colonnes (avec ce qui existe)
-    clauses = []
-    if field_phase: clauses.append(f"{{{field_phase}}} = '{phase}'")
-    if field_week:  clauses.append(f"{{{field_week}}} = {semaine}")
-    if field_level: clauses.append(f"{{{field_level}}} = '{niveau}'")
-    # l'objectif est optionnel; on tente si présent
-    if field_obj:   clauses.append(f"OR( {{{field_obj}}} = '{objectif}', FIND('{objectif}', ARRAYJOIN({{{field_obj}}}, ',')) )")
-
-    if clauses:
-        formula = f"AND({', '.join(clauses)})"
-        row = TABLE_MESSAGES_SMARTCOACH.first(formula=formula)
-        if row:
-            return row.get("fields", {}).get(field_message, "") or ""
-
-    # Rien trouvé
-    return ""
+    fields = row.get("fields", {})
+    return (
+        fields.get("Message (template)") or
+        fields.get("Message coach") or
+        fields.get("Message") or
+        ""
+    )
 
 def get_weekly_message(semaine: int):
     # S1->M1, S2->M2, S3->M3, S4->M4, S5->M1, etc.
@@ -287,7 +260,7 @@ def archive_existing_for_runner(record_id: str, version_actuelle: int) -> int:
     if not record_id:
         return 0
 
-    existing = TABLE_SEANCES.all(formula=f"SEARCH('{record_id}', ARRAYJOIN({{Coureur}}, ','))")
+    existing = TABLE_SEANCES.all(formula=f"FIND('{record_id}', ARRAYJOIN({{Coureur}}, ','))")
     if not existing:
         return 0
 
@@ -390,10 +363,35 @@ def generate_by_id():
         return jsonify(error="Coureur introuvable"), 404
 
     cf = coureur_rec.get("fields", {})
+    
+    # --- Contrôle quota groupe ---
+    # On lit le champ Groupe (linked record) depuis le coureur
+    linked_group = cf.get("Groupe") or cf.get("👥 Groupe") or []
+    quota = None
+
+    if isinstance(linked_group, list) and len(linked_group) > 0:
+        group_id = linked_group[0]
+        group_rec = TABLE_GROUPES.get(group_id)
+        if group_rec:
+            gf = group_rec.get("fields", {})
+            quota = first_nonempty(gf, "Quota mensuel", "Quota_mensuel", "Quota", default=None)
+
+    if quota:
+        this_month = datetime.now().strftime("%Y-%m")
+        rows = TABLE_SEANCES.all(
+            formula=f"AND(FIND('{record_id}', ARRAYJOIN({{Coureur}}, ',')), DATETIME_FORMAT({{Date}}, 'YYYY-MM') = '{this_month}')"
+        )
+        if len(rows) >= int(quota):
+            return jsonify(
+                status="limit_reached",
+                message=f"🚦 Limite atteinte : {quota} plan(s) autorisé(s) ce mois-ci.",
+                quota=quota
+            ), 403
 
     # Limite mensuelle de créations (champ → Nb_demandes_mois)
     nb_demandes = int_field(cf, "Nb_demandes_mois", "Nb demandes mois", default=0)
-    limite = int_field(cf, "Quota_mensuel", "Quota mensuel", default=4)
+    limite = int_field(cf, "Quota_mensuel", "Quota mensuel", "🎯 Quota mensuel", "Quota mensuel max",
+    default=4
 
     if nb_demandes >= limite:
         return jsonify(error="❌ Quota atteint : création de plan non autorisée",
@@ -429,17 +427,14 @@ def generate_by_id():
 
     # Date début plan (dd/mm/yyyy)
     # ✅ On lit la colonne calculée réelle dans Airtable
-    start_val = cf.get("Date début plan (calculée)")
-
-    if isinstance(start_val, datetime):
-        date_depart = start_val.date()
-    elif isinstance(start_val, str):
-        try:
-            date_depart = datetime.fromisoformat(start_val.split("T")[0]).date()
-        except:
-            date_depart = parse_date_ddmmyyyy(start_val).date()
-    else:
-        date_depart = datetime.now().date()
+    start_val = first_nonempty(
+    cf,
+    "Date début plan (calculée)",
+    "Date début plan",
+    "📅 Date début plan",
+    default=None
+)
+    date_depart = parse_date_ddmmyyyy(start_val).date()
         
     # Force à ne pas générer des séances dans le passé
     today = datetime.now().date()
@@ -519,7 +514,7 @@ def generate_by_id():
 
             msg_coach = get_message_coach_for(
                 phase=phase_row,
-                semaine=week_idx + 1,   # ✅ Semaine en 1-based
+                semaine=week_idx + 1,
                 niveau=niveau,
                 objectif=objectif
             )
@@ -527,7 +522,7 @@ def generate_by_id():
             if msg_coach:
                 payload["Message coach"] = msg_coach
 
-            msg_week = get_weekly_message(week_idx + 1)  # ✅
+            msg_week = get_weekly_message(week_idx)
 
             if msg_week:
                 payload["Message hebdo"] = msg_week
@@ -564,7 +559,7 @@ def generate_by_id():
 
         msg_coach = get_message_coach_for(
             phase=phase_row,
-            semaine=week_idx,
+            semaine=week_idx + 1,
             niveau=niveau,
             objectif=objectif
         )
