@@ -61,13 +61,13 @@ def get_table(env_name: str, *fallback_names: str) -> Table:
     raise RuntimeError(f"Impossible d'ouvrir la table {env_name}")
 
 # Tables (avec libellés FR compatibles avec tes captures)
-TABLE_COUR           = get_table("TABLE_COUR"          , "👤 Coureurs", "Coureurs")
-TABLE_SEANCES        = get_table("TABLE_SEANCES"       , "🏋️ Séances", "Séances")
-TABLE_ARCHIVES       = get_table("TABLE_ARCHIVES"      , "📦 Archives Séances", "Archives Séances", "Archives")
-TABLE_SEANCES_TYPES  = get_table("TABLE_SEANCES_TYPES" , "📘 Séances types", "Séances types")
-TABLE_STRUCTURE      = get_table("TABLE_STRUCTURE"     , "📐 Structure Séances", "Structure Séances")
-TABLE_MAILS          = get_table("TABLE_MAILS"         , "✉️ Mails", "Mails")  # Optionnel, pas utilisé ici
-TABLE_MESSAGES_SMARTCOACH = get_table("🗂️ Messages SmartCoach")
+TABLE_COUR                  = get_table("TABLE_COUR"                , "👤 Coureurs", "Coureurs")
+TABLE_SEANCES               = get_table("TABLE_SEANCES"             , "🏋️ Séances", "Séances")
+TABLE_ARCHIVES              = get_table("TABLE_ARCHIVES"            , "📦 Archives Séances", "Archives Séances", "Archives")
+TABLE_SEANCES_TYPES         = get_table("TABLE_SEANCES_TYPES"       , "📘 Séances types", "Séances types")
+TABLE_STRUCTURE             = get_table("TABLE_STRUCTURE"           , "📐 Structure Séances", "Structure Séances")
+TABLE_MAILS                 = get_table("TABLE_MAILS"               , "✉️ Mails", "Mails")  # Optionnel, pas utilisé ici
+TABLE_MESSAGES_SMARTCOACH   = get_table("TABLE_MESSAGES_SMARTCOACH" , "🗂️ Messages SmartCoach", "Messages SmartCoach")
 
 # -----------------------------------------------------------------------------
 # Petits helpers
@@ -221,6 +221,15 @@ def get_message_coach_for(phase: str, semaine: int, niveau: str, objectif: str):
 
     # Rien trouvé
     return ""
+
+def get_weekly_message(semaine: int):
+    # S1->M1, S2->M2, S3->M3, S4->M4, S5->M1, etc.
+    code = f"M{((semaine - 1) % 4) + 1}"
+    row = TABLE_MESSAGES_SMARTCOACH.first(formula=f"{{ID_Message}} = '{code}'")
+    if not row:
+        return ""
+    fields = row.get("fields", {})
+    return fields.get("Message (template)", "") or fields.get("Message", "") or ""
 
 # -----------------------------------------------------------------------------
 # Sélection de structure + pick séance type
@@ -479,17 +488,24 @@ def generate_by_id():
                 "Semaine": week_idx + 1,
             }
 
-            # 🧠 Ajout du message coach basé sur phase + semaine + profil
+            # 🧠 Message coach contextuel (déjà OK)
             msg_coach = get_message_coach_for(
-                phase=phase,
-                semaine=week_idx + 1,
+                phase=phase_row,
+                semaine=week_idx,
                 niveau=niveau,
                 objectif=objectif
             )
             if msg_coach:
                 payload["🧠 Message coach"] = msg_coach
 
+            # 🗓️ Message hebdomadaire (playlist M1/M2/M3/M4)
+            msg_week = get_weekly_message(week_idx)
+            if msg_week:
+                payload["🧠 Message hebdo"] = msg_week
+
             TABLE_SEANCES.create(payload)
+            previews.append(payload)
+            created += 1
 
         # ✅ Correctement dans la boucle
         if not short_type:
