@@ -151,7 +151,7 @@ def pick_session_from_type(short_type: str):
         return None
 
     formula = f"{{Type séance (court)}} = '{short_type}'"
-    rows = TABLE_SEANCES_TYPES.all(formula=formula)
+    rows = TABLE_SEANCES.all(formula=formula)
 
     if rows:
         return rows[0]
@@ -160,42 +160,6 @@ def pick_session_from_type(short_type: str):
 # -----------------------------------------------------------------------------
 # Sélection de structure + pick séance type
 # -----------------------------------------------------------------------------
-
-def get_structure_rows(phase, niveau, objectif, freq):
-    """
-    Récupère les séances types correspondant à la phase, niveau, objectif, fréquence.
-    Gère Base1/Base2 => Prépa générale.
-    Gère Objectif (multi-select).
-    """
-
-    # Normalisation Phase côté structure
-    phase_lookup = phase
-    if phase in ["Base1", "Base2"]:
-        phase_lookup = "Prépa générale"
-
-    # ---- Construction du filtre Airtable ----
-    cond_phase   = f"{{Phase}} = '{phase_lookup}'"
-    cond_niveau  = f"{{Niveau}} = '{niveau}'"
-
-    # Objectif = multi-select → on cherche l’item dans la liste
-    cond_obj     = f"FIND('{objectif}', ARRAYJOIN({{Objectif}}, ','))"
-
-    # fréquence cible = champ numérique → sans quotes
-    cond_freq    = f"{{fréquence cible}} = {freq}"
-
-    formula = f"AND({cond_phase}, {cond_niveau}, {cond_obj}, {cond_freq})"
-
-    print("📌 DEBUG FORMULA:", formula)
-
-    rows = TABLE_SEANCES_TYPES.all(formula=formula)
-
-    if not rows:
-        raise ValueError(
-            f"Aucune séance type trouvée pour Phase={phase} (lookup={phase_lookup}), "
-            f"Niveau={niveau}, Objectif={objectif}, Fréquence={freq}"
-        )
-
-    return sorted(rows, key=lambda r: r.get("fields", {}).get("Ordre", 0))
 
 def get_structure_rows(phase, niveau, objectif, freq):
     """
@@ -222,7 +186,7 @@ def get_structure_rows(phase, niveau, objectif, freq):
     formula = f"AND({cond_phase}, {cond_niveau}, {cond_obj}, {cond_freq})"
     print("📌 DEBUG FORMULA:", formula)
 
-    rows = TABLE_SEANCES_TYPES.all(formula=formula)
+    rows = TABLE_STRUCTURE.all(formula=formula)
 
     if not rows:
         raise ValueError(
@@ -458,7 +422,6 @@ def generate_by_id():
         payload = {
             "Coureur": [record_id],
             "Nom séance": nom_seance,
-            "Type séance": type_full or type_court or "EF",
             "Type séance (court)": type_court or "EF",
             "Phase": phase_row,
             "Durée (min)": duree_min,
