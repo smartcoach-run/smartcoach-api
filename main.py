@@ -462,7 +462,9 @@ def generate_by_id():
     version_actuelle = int_field(cf, "Version plan", "Version_plan", default=0)
     nouvelle_version = version_actuelle + 1
 
-    nb_archives = archive_existing_for_runner(record_id, version_actuelle)
+    # ✅ Archive même si Version plan = 0
+    nb_archives = archive_existing_for_runner(record_id, nouvelle_version - 1)
+
 
     # 3) Récup structure (liste ordonnée)
     structure_rows = get_structure_rows(phase)
@@ -479,8 +481,6 @@ def generate_by_id():
     created = 0
     previews: List[Dict[str, Any]] = []
 
-    # On duplique la structure sur l'horizon temporel : ex. 2 jours/sem → on répète
-    # structure_rows[i % len(structure_rows)] sert d'alternance basique et stable.
     for idx, (week_idx, day_label, date_obj) in enumerate(slots):
         st = structure_rows[idx % len(structure_rows)]
         sf = st.get("fields", {})
@@ -495,23 +495,28 @@ def generate_by_id():
         else:
             stype = pick_session_from_type(short_type)
 
+        # --- 🌧️ Cas fallback (pas de modèle trouvé) ---
         if not stype:
-            # Fallback séance simple si aucun modèle trouvé pour ce short_type
+            # valeurs fallback stables
+            fallback_nom   = short_type or "Footing"
+            fallback_cle   = short_type or "EF"
+            fallback_duree = 40
+            fallback_charge = 1
+
             payload = {
                 "Coureur": [record_id],
-                "Nom séance": nom_seance,
-                "Phase": phase,
-                "Clé séance": cle_seance,
-                "Type séance (court)": type_court,
-                "Durée (min)": duree,
-                "Charge": charge,
+                "Nom séance": fallback_nom,
+                "Phase": phase_row,
+                "Clé séance": fallback_cle,
+                "Type séance (court)": short_type or "EF",
+                "Durée (min)": fallback_duree,
+                "Charge": fallback_charge,
+                "Jour planifié": day_label,
                 "Date": date_obj.isoformat(),
-                "Jour planifié": jour_dispo,
                 "Version plan": nouvelle_version,
-                "Semaine": week_idx + 1,
+                "Semaine": week_idx + 1
             }
 
-            # 🧠 Message coach contextuel (déjà OK)
             msg_coach = get_message_coach_for(
                 phase=phase_row,
                 semaine=week_idx,
@@ -521,80 +526,65 @@ def generate_by_id():
             if msg_coach:
                 payload["🧠 Message coach"] = msg_coach
 
-            # 🗓️ Message hebdomadaire (playlist M1/M2/M3/M4)
             msg_week = get_weekly_message(week_idx)
             if msg_week:
                 payload["🧠 Message hebdo"] = msg_week
 
-            TABLE_SEANCES.create(payload)
-            previews.append(payload)
-            created += 1
-
-        # ✅ Correctement dans la boucle
-        if not short_type:
-            nom = f"EF – fallback 40'"
-            payload = {
-                "Coureur": [record_id],
-                "Nom séance": nom,
-                "Type séance (court)": "EF",
-                "Phase": phase_row,
-                "Durée (min)": 40,
-                "Charge": 1,
-                "Jour planifié": day_label,
-                "Date": date_obj.isoformat(),
-                "Version plan": nouvelle_version
-            }
-            # 🧠 Message coach (contextuel, lié à la phase et la progression)
-            msg_coach = get_message_coach_for(
-                phase=phase_row,
-                semaine=week_idx,      # important : week_idx commence à 1 → OK
-                niveau=niveau,
-                objectif=objectif
-            )
-            if msg_coach:
-                payload["🧠 Message coach"] = msg_coach
-
-            # 🗓️ Message hebdomadaire (playlist M1 / M2 / M3 / M4)
-            msg_week = get_weekly_message(week_idx)
-            if msg_week:
-                payload["🧠 Message hebdo"] = msg_week
-            
             TABLE_SEANCES.create(payload)
             previews.append(payload)
             created += 1
             continue
 
+        # --- 🌞 Cas séance normale (modèle trouvé) ---
         stf = stype.get("fields", {})
 
-        nom_seance   = first_nonempty(stf, "Nom séance", "Nom", default=first_nonempty(stf, "Clé séance", "Clé", "Cle", default="Séance"))
-        type_full    = first_nonempty(stf, "Type séance", "Type seance", default="")
-        type_court   = first_nonempty(stf, "Type séance (court)", "Type seance (court)", "Type seance court", default=short_type or "")
-        duree_min    = int_field(stf, "Durée (min)", "Duree (min)", "Durée", default=40)
-        charge       = first_nonempty(stf, "Charge", default=None)
+        nom_seance = first_nonempty(stf, "Nom séance", "Nom", default=first_nonempty(stf, "Clé séance", "Clé", "Cle", default="Séance"))
+        type_court = first_nonempty(stf, "Type séance (court)", "Type seance (court)", "Type seance court", default=short_type or "")
+        duree_min  = int_field(stf, "Durée (min)", "Duree (min)", "Durée", default=40)
+        charge     = first_nonempty(stf, "Charge", default=None)
 
         payload = {
             "Coureur": [record_id],
             "Nom séance": nom_seance,
-            "Type séance (court)": type_court or "EF",
             "Phase": phase_row,
+            "Type séance (court)": type_court or "EF",
             "Durée (min)": duree_min,
             "Charge": charge,
             "Jour planifié": day_label,
             "Date": date_obj.isoformat(),
-            "Version plan": nouvelle_version
+            "Version plan": nouvelle_version,
+            "Semaine": week_idx + 1
         }
 
         cle = first_nonempty(stf, "Clé séance", "Cle séance", "Cle", default=None)
         if cle:
             payload["Clé séance"] = cle
 
+        msg_coach = get_message_coach_for(
+            phase=phase_row,
+            semaine=week_idx,
+            niveau=niveau,
+            objectif=objectif
+        )
+        if msg_coach:
+            payload["🧠 Message coach"] = msg_coach
+
+        msg_week = get_weekly_message(week_idx)
+        if msg_week:
+            payload["🧠 Message hebdo"] = msg_week
+
         TABLE_SEANCES.create(payload)
         previews.append(payload)
         created += 1
 
-
     # 6) Update version côté coureur
     TABLE_COUR.update(record_id, {"Version plan": nouvelle_version})
+
+    # ✅ Incrément quota mensuel (Nb_demandes_mois += 1)
+    try:
+        TABLE_COUR.update(record_id, {"Nb_demandes_mois": nb_demandes + 1})
+    except Exception:
+        pass
 
     msg = f"✅ Nouveau plan généré — **Version {nouvelle_version}**\n{created} séances créées ({nb_semaines} sem × {len(jours)}/sem)."
     out = {
