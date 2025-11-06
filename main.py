@@ -144,40 +144,31 @@ def first_nonempty(fields: Dict[str, Any], *names: str, default=None):
 
 def pick_session_from_type(short_type: str):
     """
-    Fallback simple : récupère une séance type via le champ "Type séance (court)".
-    Renvoie le premier match trouvé.
+    Fallback : récupère une séance type via le champ 'Type séance (court)'
+    dans 📘 Séances types.
     """
     if not short_type:
         return None
-
     formula = f"{{Type séance (court)}} = '{short_type}'"
-    rows = TABLE_SEANCES.all(formula=formula)
-
-    if rows:
-        return rows[0]
-    return None
+    rows = TABLE_SEANCES_TYPES.all(formula=formula)
+    return rows[0] if rows else None
 
 # -----------------------------------------------------------------------------
 # Sélection de structure + pick séance type
 # -----------------------------------------------------------------------------
 
-def get_structure_rows(phase, niveau, objectif, freq):
-    cond_niveau = f"{{Niveau}} = '{niveau}'"
-    cond_obj = f"OR({{Objectif}} = '{objectif}', FIND('{objectif}', ARRAYJOIN({{Objectif}}, ',')))"
-    cond_freq = f"{{fréquence cible}} = {freq}"
-
-    # Ne pas filtrer sur Phase pour sélectionner la séance type
-    formula = f"AND({cond_niveau}, {cond_obj}, {cond_freq})"
-    print("📌 DEBUG FORMULA:", formula)
-
+def get_structure_rows(phase: str):
+    """
+    Récupère l'ordre des séances pour une phase donnée
+    depuis 📐 Structure Séances.
+    Base1 / Base2 → mappés sur 'Prépa générale'.
+    """
+    phase_lookup = "Prépa générale" if phase in ("Base1", "Base2") else phase
+    formula = f"{{Phase}} = '{phase_lookup}'"
     rows = TABLE_STRUCTURE.all(formula=formula)
-
     if not rows:
-        raise ValueError(
-            f"Aucune séance type trouvée pour Niveau={niveau}, Objectif={objectif}, Fréquence={freq}"
-        )
-
-    return sorted(rows, key=lambda r: r.get('fields', {}).get('Ordre', 0))
+        raise ValueError(f"Aucune structure trouvée pour Phase={phase} (lookup={phase_lookup})")
+    return sorted(rows, key=lambda r: r.get("fields", {}).get("Ordre", 0))
 
 def OR_compat(*args):
     # petit OR qui fonctionne comme pyairtable.formulas.OR (mais inline)
@@ -346,7 +337,8 @@ def generate_by_id():
     nb_archives = archive_existing_for_runner(record_id, version_actuelle)
 
     # 3) Récup structure (liste ordonnée)
-    structure_rows = get_structure_rows(phase, niveau, objectif, freq)
+    structure_rows = get_structure_rows(phase)
+
     if not structure_rows:
         return jsonify(error="Aucune structure trouvée", niveau=niveau, objectif=objectif, phase=phase, frequence=freq), 422
 
@@ -374,6 +366,24 @@ def generate_by_id():
             stype = TABLE_SEANCES_TYPES.get(ses_type_id)
         else:
             stype = pick_session_from_type(short_type)
+
+        if not stype:
+            # Fallback séance simple si aucun modèle trouvé pour ce short_type
+            payload = {
+                "Coureur": [record_id],
+                "Nom séance": "EF – fallback 40'",
+                "Type séance (court)": "EF",
+                "Phase": phase_row,
+                "Durée (min)": 40,
+                "Charge": 1,
+                "Jour planifié": day_label,
+                "Date": date_obj.date().isoformat(),
+                "Version plan": nouvelle_version
+            }
+            TABLE_SEANCES.create(payload)
+            previews.append(payload)
+            created += 1
+            continue
 
         # ✅ Correctement dans la boucle
         if not short_type:
