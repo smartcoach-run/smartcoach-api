@@ -161,40 +161,22 @@ def pick_session_from_type(short_type: str):
 # Sélection de structure + pick séance type
 # -----------------------------------------------------------------------------
 
-def get_structure_rows(phase, niveau, objectif, freq):
+def get_structure_rows(phase):
     """
-    Récupère les séances types correspondant à la phase, niveau, objectif, fréquence.
-    Accepte Base1/Base2 OU Prépa générale dans Airtable.
-    Compatible single/multi-select pour Objectif.
+    Récupère l'ordre des séances pour une phase donnée
+    depuis 📐 Structure Séances.
+    Aucun filtrage niveau/objectif/fréquence ici :
+    cela se fait dans 📘 Séances types.
     """
-
-    # Phase : autoriser Base1/Base2 OU Prépa générale
-    if phase in ["Base1", "Base2"]:
-        cond_phase = f"OR({{Phase}} = 'Prépa générale', {{Phase}} = '{phase}')"
-    else:
-        cond_phase = f"{{Phase}} = '{phase}'"
-
-    # Niveau
-    cond_niveau = f"{{Niveau}} = '{niveau}'"
-
-    # Objectif (multi-select / single-select safe)
-    cond_obj = f"OR({{Objectif}} = '{objectif}', FIND('{objectif}', ARRAYJOIN({{Objectif}}, ',')))"
-
-    # Fréquence (numérique)
-    cond_freq = f"{{fréquence cible}} = {freq}"
-
-    formula = f"AND({cond_phase}, {cond_niveau}, {cond_obj}, {cond_freq})"
-    print("📌 DEBUG FORMULA:", formula)
-
+    formula = f"{{Phase}} = '{phase}'"
     rows = TABLE_STRUCTURE.all(formula=formula)
 
     if not rows:
-        raise ValueError(
-            f"Aucune séance type trouvée pour Phase={phase}, Niveau={niveau}, "
-            f"Objectif={objectif}, Fréquence={freq}"
-        )
+        print(f"[WARN] Aucune structure trouvée pour la phase : {phase}")
+        return []
 
-    return sorted(rows, key=lambda r: r.get('fields', {}).get('Ordre', 0))
+    # Tri par ordre (si présent)
+    return sorted(rows, key=lambda r: r.get("fields", {}).get("Ordre", 0))
 
 def OR_compat(*args):
     # petit OR qui fonctionne comme pyairtable.formulas.OR (mais inline)
