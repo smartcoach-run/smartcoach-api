@@ -379,7 +379,7 @@ def generate_by_id():
 
     # Si aucun groupe → affectation automatique du groupe "Autres"
     if not groupe_id:
-        grp_autres = TABLE_GROUPES.first(formula="{👥 Groupes} = 'Autres'")
+        grp_autres = TABLE_GROUPES.first(formula="{Nom} = 'Autres'")
         if grp_autres:
             groupe_id = grp_autres["id"]
             TABLE_COUR.update(record_id, {"Groupe": [groupe_id]})
