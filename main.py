@@ -390,7 +390,14 @@ def generate_by_id():
 
     # Limite mensuelle de créations (champ → Nb_demandes_mois)
     nb_demandes = int_field(cf, "Nb_demandes_mois", "Nb demandes mois", default=0)
-    limite = int_field(cf, "Quota_mensuel", "Quota mensuel", "🎯 Quota mensuel", "Quota mensuel max",
+    # Lecture quota mensuel du coureur (table Courreurs)
+    limite = int_field(
+        cf,
+        "Quota_mensuel",
+        "Quota mensuel",
+        "🎯 Quota mensuel",
+        "Quota mensuel max",
+    )
     default=4
 
     if nb_demandes >= limite:
