@@ -415,25 +415,25 @@ def generate_by_id():
         else:
             stype = pick_session_from_type(short_type)
 
-        if not short_type:
-            # si rien trouvé, on crée une séance générique EF 40' comme fallback minimal
-            nom = f"EF – fallback 40'"
-            payload = {
-                "Coureur": [record_id],
-                "Nom séance": nom,
-                "Type séance (court)": "EF",      # ✅ On pose explicitement EF
-                "Phase": phase_row,
-                "Durée (min)": 40,
-                "Charge": 1,
-                "Jour planifié": day_label,
-                "Date": date_obj.date().isoformat(),
-                "Version plan": nouvelle_version
-            }
+    if not short_type:
+        # si rien trouvé, on crée une séance générique EF 40' comme fallback minimal
+        nom = f"EF – fallback 40'"
+        payload = {
+            "Coureur": [record_id],
+            "Nom séance": nom,
+            "Type séance (court)": "EF",      # ✅ On pose explicitement EF
+            "Phase": phase_row,
+            "Durée (min)": 40,
+            "Charge": 1,
+            "Jour planifié": day_label,
+            "Date": date_obj.date().isoformat(),
+            "Version plan": nouvelle_version
+        }
 
-            TABLE_SEANCES.create(payload)
-            previews.append(payload)
-            created += 1
-            continue
+        TABLE_SEANCES.create(payload)
+        previews.append(payload)
+        created += 1
+        continue
 
         stf = stype.get("fields", {})
         # Extraction des champs utiles depuis 📘 Séances types
