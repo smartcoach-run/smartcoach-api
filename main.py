@@ -380,15 +380,17 @@ def generate_by_id():
         if not stype:
             # Fallback séance simple si aucun modèle trouvé pour ce short_type
             payload = {
-                "Coureur": [record_id],
-                "Nom séance": "EF – fallback 40'",
-                "Type séance (court)": "EF",
-                "Phase": phase_row,
-                "Durée (min)": 40,
-                "Charge": 1,
-                "Jour planifié": day_label,
+                "Coureur": [coureur_id],
+                "Nom séance": nom_seance,
+                "Phase": phase,
+                "Clé séance": cle_seance,
+                "Type séance (court)": type_court,
+                "Durée (min)": duree,
+                "Charge": charge,
                 "Date": date_obj.isoformat(),
-                "Version plan": nouvelle_version
+                "Jour planifié": jour_dispo,
+                "Version plan": nouvelle_version,
+                "Semaine": week_idx + 1,  # ✅ AJOUT ICI
             }
             TABLE_SEANCES.create(payload)
             previews.append(payload)
@@ -406,7 +408,7 @@ def generate_by_id():
                 "Durée (min)": 40,
                 "Charge": 1,
                 "Jour planifié": day_label,
-                "Date": date_obj.date().isoformat(),
+                "Date": date_obj.isoformat(),
                 "Version plan": nouvelle_version
             }
             TABLE_SEANCES.create(payload)
@@ -430,7 +432,7 @@ def generate_by_id():
             "Durée (min)": duree_min,
             "Charge": charge,
             "Jour planifié": day_label,
-            "Date": date_obj.date().isoformat(),
+            "Date": date_obj.isoformat(),
             "Version plan": nouvelle_version
         }
 
