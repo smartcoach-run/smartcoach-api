@@ -421,37 +421,34 @@ def generate_by_id():
         short_type = first_nonempty(sf, "Type séance (court)", "Type seance (court)", "Type seance court")
         phase_row  = first_nonempty(sf, "Phase", default=phase)
 
-        # Si la structure référence directement une ou plusieurs "Séances types", on les prend en priorité.
         linked_types = sf.get("Séances types") or sf.get("Seances types") or []
         if linked_types and isinstance(linked_types, list):
-            # On prend la première séance liée
             ses_type_id = linked_types[0]
             stype = TABLE_SEANCES_TYPES.get(ses_type_id)
         else:
             stype = pick_session_from_type(short_type)
 
-    if not short_type:
-        # si rien trouvé, on crée une séance générique EF 40' comme fallback minimal
-        nom = f"EF – fallback 40'"
-        payload = {
-            "Coureur": [record_id],
-            "Nom séance": nom,
-            "Type séance (court)": "EF",      # ✅ On pose explicitement EF
-            "Phase": phase_row,
-            "Durée (min)": 40,
-            "Charge": 1,
-            "Jour planifié": day_label,
-            "Date": date_obj.date().isoformat(),
-            "Version plan": nouvelle_version
-        }
-
-        TABLE_SEANCES.create(payload)
-        previews.append(payload)
-        created += 1
-        continue
+        # ✅ Correctement dans la boucle
+        if not short_type:
+            nom = f"EF – fallback 40'"
+            payload = {
+                "Coureur": [record_id],
+                "Nom séance": nom,
+                "Type séance (court)": "EF",
+                "Phase": phase_row,
+                "Durée (min)": 40,
+                "Charge": 1,
+                "Jour planifié": day_label,
+                "Date": date_obj.date().isoformat(),
+                "Version plan": nouvelle_version
+            }
+            TABLE_SEANCES.create(payload)
+            previews.append(payload)
+            created += 1
+            continue
 
         stf = stype.get("fields", {})
-        # Extraction des champs utiles depuis 📘 Séances types
+
         nom_seance   = first_nonempty(stf, "Nom séance", "Nom", default=first_nonempty(stf, "Clé séance", "Clé", "Cle", default="Séance"))
         type_full    = first_nonempty(stf, "Type séance", "Type seance", default="")
         type_court   = first_nonempty(stf, "Type séance (court)", "Type seance (court)", "Type seance court", default=short_type or "")
@@ -470,7 +467,7 @@ def generate_by_id():
             "Date": date_obj.date().isoformat(),
             "Version plan": nouvelle_version
         }
-        # Optionnel : garder trace de la clé séance si dispo
+
         cle = first_nonempty(stf, "Clé séance", "Cle séance", "Cle", default=None)
         if cle:
             payload["Clé séance"] = cle
@@ -478,6 +475,7 @@ def generate_by_id():
         TABLE_SEANCES.create(payload)
         previews.append(payload)
         created += 1
+
 
     # 6) Update version côté coureur
     TABLE_COUR.update(record_id, {"Version plan": nouvelle_version})
