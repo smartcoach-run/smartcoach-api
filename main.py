@@ -328,17 +328,16 @@ def generate_by_id():
 
     # Date début plan (dd/mm/yyyy)
     # ✅ On lit la colonne calculée réelle dans Airtable
-    start_str = cf.get("Date début plan (calculée)")
+    start_val = cf.get("Date début plan (calculée)")
 
-    if start_str:
+    if isinstance(start_val, datetime):
+        date_depart = start_val.date()
+    elif isinstance(start_val, str):
         try:
-            # Airtable renvoie généralement format ISO
-            date_depart = datetime.fromisoformat(start_str.split("T")[0]).date()
+            date_depart = datetime.fromisoformat(start_val.split("T")[0]).date()
         except:
-            # fallback DD/MM/YYYY si format différent
-            date_depart = parse_date_ddmmyyyy(start_str).date()
+            date_depart = parse_date_ddmmyyyy(start_val).date()
     else:
-        # fallback sécurité
         date_depart = datetime.now().date()
 
     # 2) Version + Archivage
@@ -388,7 +387,7 @@ def generate_by_id():
                 "Durée (min)": 40,
                 "Charge": 1,
                 "Jour planifié": day_label,
-                "Date": date_obj.date().isoformat(),
+                "Date": date_obj.isoformat(),
                 "Version plan": nouvelle_version
             }
             TABLE_SEANCES.create(payload)
