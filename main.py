@@ -163,17 +163,21 @@ def pick_session_from_type(short_type: str):
 
 def get_structure_rows(phase):
     """
-    Récupère l'ordre des séances pour une phase donnée
+    Retourne l'ordre des séances pour une phase donnée
     depuis 📐 Structure Séances.
-    Aucun filtrage niveau/objectif/fréquence ici :
-    cela se fait dans 📘 Séances types.
+    Base1 / Base2 → mappés sur Prépa générale.
     """
-    formula = f"{{Phase}} = '{phase}'"
+    # Mapping des phases
+    if phase in ["Base1", "Base2"]:
+        phase_lookup = "Prépa générale"
+    else:
+        phase_lookup = phase
+
+    formula = f"{{Phase}} = '{phase_lookup}'"
     rows = TABLE_STRUCTURE.all(formula=formula)
 
     if not rows:
-        print(f"[WARN] Aucune structure trouvée pour la phase : {phase}")
-        return []
+        raise ValueError(f"Aucune structure trouvée pour Phase={phase} (lookup={phase_lookup})")
 
     # Tri par ordre (si présent)
     return sorted(rows, key=lambda r: r.get("fields", {}).get("Ordre", 0))
