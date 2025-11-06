@@ -67,6 +67,7 @@ TABLE_ARCHIVES       = get_table("TABLE_ARCHIVES"      , "📦 Archives Séances
 TABLE_SEANCES_TYPES  = get_table("TABLE_SEANCES_TYPES" , "📘 Séances types", "Séances types")
 TABLE_STRUCTURE      = get_table("TABLE_STRUCTURE"     , "📐 Structure Séances", "Structure Séances")
 TABLE_MAILS          = get_table("TABLE_MAILS"         , "✉️ Mails", "Mails")  # Optionnel, pas utilisé ici
+TABLE_MESSAGES_SMARTCOACH = get_table("🗂️ Messages SmartCoach")
 
 # -----------------------------------------------------------------------------
 # Petits helpers
@@ -152,6 +153,74 @@ def pick_session_from_type(short_type: str):
     formula = f"{{Type séance (court)}} = '{short_type}'"
     rows = TABLE_SEANCES_TYPES.all(formula=formula)
     return rows[0] if rows else None
+
+# ---- Messages Coach helpers ----
+def safe_field(d: dict, candidates):
+    """Retourne le premier nom de champ existant parmi candidates dans un dict 'fields' Airtable."""
+    for name in candidates:
+        if name in d:
+            return name
+    return None
+
+
+def get_message_coach_for(phase: str, semaine: int, niveau: str, objectif: str):
+    """
+    Lookup dans la table 🗂️ Messages SmartCoach en s'adaptant aux noms de champs existants.
+    Stratégie:
+      1) Si la table a une 'Clé recherche' (ou 'Clé'), on essaie plusieurs clés.
+      2) Sinon, on essaie un AND sur les colonnes Phase/Semaine/Niveau/Objectif si elles existent.
+    Retourne le texte (Message (template)/Message coach/Message) ou "" si rien.
+    """
+    # 1) récupérer une ligne pour détecter les noms de champs de cette table
+    sample = TABLE_MESSAGES_SMARTCOACH.first()  # peut être None si table vide
+    if not sample:
+        return ""
+
+    f = sample.get("fields", {})
+
+    # noms possibles des colonnes
+    field_phase   = safe_field(f, ["Phase", "phase"])
+    field_week    = safe_field(f, ["Semaine", "Week", "Sem"])
+    field_level   = safe_field(f, ["Niveau", "Level"])
+    field_obj     = safe_field(f, ["Objectif", "Goal", "Objectif visé"])
+    field_key     = safe_field(f, ["Clé recherche", "Clé", "Cle", "Key", "LookupKey"])
+
+    # nom du champ texte
+    field_message = safe_field(f, ["Message (template)", "Message coach", "Message", "🧠 Message", "Texte"])
+
+    if not field_message:
+        return ""
+
+    # 1) Essai par clé de recherche si dispo
+    if field_key:
+        # On tente plusieurs variantes, de la plus spécifique à la plus large
+        candidates = [
+            f"Running|{phase}|{semaine}|{niveau}|{objectif}",
+            f"Running|{phase}|{semaine}|{niveau}",
+            f"{phase}|{semaine}|{niveau}|{objectif}",
+            f"{phase}|{semaine}|{niveau}",
+        ]
+        for key in candidates:
+            row = TABLE_MESSAGES_SMARTCOACH.first(formula=f"{{{field_key}}} = '{key}'")
+            if row:
+                return row.get("fields", {}).get(field_message, "") or ""
+
+    # 2) Essai par matching multi-colonnes (avec ce qui existe)
+    clauses = []
+    if field_phase: clauses.append(f"{{{field_phase}}} = '{phase}'")
+    if field_week:  clauses.append(f"{{{field_week}}} = {semaine}")
+    if field_level: clauses.append(f"{{{field_level}}} = '{niveau}'")
+    # l'objectif est optionnel; on tente si présent
+    if field_obj:   clauses.append(f"OR( {{{field_obj}}} = '{objectif}', FIND('{objectif}', ARRAYJOIN({{{field_obj}}}, ',')) )")
+
+    if clauses:
+        formula = f"AND({', '.join(clauses)})"
+        row = TABLE_MESSAGES_SMARTCOACH.first(formula=formula)
+        if row:
+            return row.get("fields", {}).get(field_message, "") or ""
+
+    # Rien trouvé
+    return ""
 
 # -----------------------------------------------------------------------------
 # Sélection de structure + pick séance type
@@ -308,7 +377,7 @@ def generate_by_id():
     freq = int_field(cf, "Fréquence", "Fréquence cible", "Fréquence_cible", default=2)
 
     # Nb semaines (défaut 8)
-    nb_semaines = int_field(cf, "Nb_semaines", "Semaines", "Nombre de semaines", default=8)
+    nb_semaines = int_field(cf, "Nb_semaines (calculé)", "Nb_semaines", "Semaines", "Nombre de semaines", default=8)
 
     # Jours dispo (logique positive)
     jours = jours_dispo(cf)
@@ -339,6 +408,23 @@ def generate_by_id():
             date_depart = parse_date_ddmmyyyy(start_val).date()
     else:
         date_depart = datetime.now().date()
+        
+    # Force à ne pas générer des séances dans le passé
+    today = datetime.now().date()
+    if date_depart < today:
+        date_depart = today
+
+    # 🔥 Recalcul automatique si Date objectif existe
+    date_obj = cf.get("Date objectif") or cf.get("📅 Date objectif")
+    if date_obj:
+        date_obj = parse_date_ddmmyyyy(date_obj).date()
+        delta_days = (date_obj - date_depart).days
+        nb_semaines = max(1, delta_days // 7)
+    # ✅ On met à jour la valeur dans Airtable
+    try:
+        TABLE_COUR.update(record_id, {"Nb_semaines (calculé)": nb_semaines})
+    except Exception:
+        pass  # on ne bloque pas la génération si la mise à jour échoue
 
     # 2) Version + Archivage
     version_actuelle = int_field(cf, "Version plan", "Version_plan", default=0)
@@ -380,7 +466,7 @@ def generate_by_id():
         if not stype:
             # Fallback séance simple si aucun modèle trouvé pour ce short_type
             payload = {
-                "Coureur": [coureur_id],
+                "Coureur": [record_id],
                 "Nom séance": nom_seance,
                 "Phase": phase,
                 "Clé séance": cle_seance,
@@ -390,12 +476,20 @@ def generate_by_id():
                 "Date": date_obj.isoformat(),
                 "Jour planifié": jour_dispo,
                 "Version plan": nouvelle_version,
-                "Semaine": week_idx + 1,  # ✅ AJOUT ICI
+                "Semaine": week_idx + 1,
             }
+
+            # 🧠 Ajout du message coach basé sur phase + semaine + profil
+            msg_coach = get_message_coach_for(
+                phase=phase,
+                semaine=week_idx + 1,
+                niveau=niveau,
+                objectif=objectif
+            )
+            if msg_coach:
+                payload["🧠 Message coach"] = msg_coach
+
             TABLE_SEANCES.create(payload)
-            previews.append(payload)
-            created += 1
-            continue
 
         # ✅ Correctement dans la boucle
         if not short_type:
