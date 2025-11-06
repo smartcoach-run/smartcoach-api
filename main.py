@@ -238,6 +238,21 @@ def OR_compat(*args):
     from pyairtable.formulas import OR
     return OR(*args)
 
+# Mapping Type séance (court) -> Type séance (Airtable multi-select)
+TYPE_MAP = {
+    "EF": "Footing",
+    "TECH": "Technique",
+    "SL": "Sortie longue",
+    "SEU": "Seuil",
+    "VMA": "VMA",
+    "AS10": "AS10",
+    "OFF": "Repos",
+    "VEILLE": "Activation légère",
+    "RACE": "Course",
+    "ACT": "Activation",
+}
+
+
 # -----------------------------------------------------------------------------
 # Archivage
 # -----------------------------------------------------------------------------
