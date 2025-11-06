@@ -327,8 +327,19 @@ def generate_by_id():
         jours = jours[:freq]
 
     # Date début plan (dd/mm/yyyy)
-    start_str = first_nonempty(cf, "Date début plan", "Date_debut_plan", "Date début", default=None)
-    start_date = parse_date_ddmmyyyy(start_str) if start_str else datetime.now(timezone.utc)
+    # ✅ On lit la colonne calculée réelle dans Airtable
+    start_str = cf.get("Date début plan (calculée)")
+
+    if start_str:
+        try:
+            # Airtable renvoie généralement format ISO
+            date_depart = datetime.fromisoformat(start_str.split("T")[0]).date()
+        except:
+            # fallback DD/MM/YYYY si format différent
+            date_depart = parse_date_ddmmyyyy(start_str).date()
+    else:
+        # fallback sécurité
+        date_depart = datetime.now().date()
 
     # 2) Version + Archivage
     version_actuelle = int_field(cf, "Version plan", "Version_plan", default=0)
@@ -343,7 +354,7 @@ def generate_by_id():
         return jsonify(error="Aucune structure trouvée", niveau=niveau, objectif=objectif, phase=phase, frequence=freq), 422
 
     # 4) Préparer l’échéancier des dates
-    slots = generate_dates(start_date, nb_semaines, jours)  # (semaine_idx, jour_label, date_obj)
+    slots = generate_dates(date_depart, nb_semaines, jours)
     if not slots:
         return jsonify(error="Aucun slot de date généré"), 422
 
