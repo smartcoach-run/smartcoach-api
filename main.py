@@ -357,12 +357,19 @@ def generate_by_id():
     # Nb semaines (défaut 8)
     nb_semaines = int_field(cf, "Nb_semaines", "Semaines", "Nombre de semaines", default=8)
 
-    # Jours dispo
+    # Jours dispo (logique positive)
     jours = jours_dispo(cf)
+    nb_jours_min = int_field(cf, "Nb_jours_min", "Nb jours min", default=2)
+
     if not jours:
-        # fallback : 2 jours par défaut (mercredi & dimanche)
-        jours = ["Mercredi","Dimanche"]
-    # On contraint au nombre de séances / semaine
+        if nb_jours_min == 1:
+            # ✅ Message positif → on propose 1 jour cohérent
+            jours = ["Dimanche"]
+        else:
+            # ✅ Cas normal → fallback stable
+            jours = ["Mercredi", "Dimanche"]
+
+    # On limite au nombre de séances / semaine (fréquence)
     if len(jours) > freq:
         jours = jours[:freq]
 
