@@ -364,47 +364,47 @@ def generate_by_id():
 
     cf = coureur_rec.get("fields", {})
     
-    # --- Contrôle quota groupe ---
-    # On lit le champ Groupe (linked record) depuis le coureur
-    linked_group = cf.get("Groupe") or cf.get("👥 Groupe") or []
-    quota = None
+    # --- 🧮 Quota mensuel (hérité du Groupe) ---
+    nb_demandes = cf.get("Nb_plans_mois") or 0
+    nb_demandes = int(nb_demandes)
 
-    if isinstance(linked_group, list) and len(linked_group) > 0:
-        group_id = linked_group[0]
-        group_rec = TABLE_GROUPES.get(group_id)
-        if group_rec:
-            gf = group_rec.get("fields", {})
-            quota = first_nonempty(gf, "Quota mensuel", "Quota_mensuel", "Quota", default=None)
+    # Récupération du groupe du coureur
+    groupe_ref = cf.get("Groupe")
+    if isinstance(groupe_ref, list) and len(groupe_ref) > 0:
+        groupe_id = groupe_ref[0]
+    elif isinstance(groupe_ref, str):
+        groupe_id = groupe_ref
+    else:
+        groupe_id = None
 
-    if quota:
-        this_month = datetime.now().strftime("%Y-%m")
-        rows = TABLE_SEANCES.all(
-            formula=f"AND(FIND('{record_id}', ARRAYJOIN({{Coureur}}, ',')), DATETIME_FORMAT({{Date}}, 'YYYY-MM') = '{this_month}')"
-        )
-        if len(rows) >= int(quota):
-            return jsonify(
-                status="limit_reached",
-                message=f"🚦 Limite atteinte : {quota} plan(s) autorisé(s) ce mois-ci.",
-                quota=quota
-            ), 403
+    # Si aucun groupe → affectation automatique du groupe "Autres"
+    if not groupe_id:
+        grp_autres = TABLE_GROUPES.first(formula="{Nom} = 'Autres'")
+        if grp_autres:
+            groupe_id = grp_autres["id"]
+            TABLE_COUR.update(record_id, {"Groupe": [groupe_id]})
+        else:
+            return jsonify({"error": "❌ Aucun groupe défini et impossible de trouver 'Autres'."})
 
-    # Limite mensuelle de créations (champ → Nb_demandes_mois)
-    nb_demandes = int_field(cf, "Nb_demandes_mois", "Nb demandes mois", default=0)
-    # Lecture quota mensuel du coureur (table Courreurs)
-    limite = int_field(
-        cf,
-        "Quota_mensuel",
-        "Quota mensuel",
-        "🎯 Quota mensuel",
-        "Quota mensuel max",
-    )
-    default=4
+    # Lecture du quota défini sur le groupe
+    groupe = TABLE_GROUPES.get(groupe_id)
+    quota = groupe["fields"].get("Quota_mensuel") or 0
+    quota = int(quota)
 
-    if nb_demandes >= limite:
-        return jsonify(error="❌ Quota atteint : création de plan non autorisée",
-                       message_id="SC_COACH_QUOTA",
-                       nb_demandes=nb_demandes,
-                       quota=limite), 403
+    # Application du quota
+    if quota > 0 and nb_demandes >= quota:
+        return jsonify({
+            "error": "❌ Quota atteint : création de plan non autorisée",
+            "message_id": "SC_COACH_QUOTA",
+            "nb_demandes": nb_demandes,
+            "quota": quota
+        })
+
+    # Incrément du compteur (mais sans bloquer si quota = illimité)
+    try:
+        TABLE_COUR.update(record_id, {"Nb_plans_mois": nb_demandes + 1})
+    except:
+        pass
 
     niveau   = first_nonempty(cf, "Niveau", "🧭 Niveau", default="Reprise")
     objectif = first_nonempty(cf, "Objectif", "🎯 Objectif", default="10K")
@@ -583,12 +583,6 @@ def generate_by_id():
 
     # 6) Update version côté coureur
     TABLE_COUR.update(record_id, {"Version plan": nouvelle_version})
-
-    # ✅ Incrément quota mensuel (Nb_demandes_mois += 1)
-    try:
-        TABLE_COUR.update(record_id, {"Nb_demandes_mois": nb_demandes + 1})
-    except Exception:
-        pass
 
     msg = f"✅ Nouveau plan généré — **Version {nouvelle_version}**\n{created} séances créées ({nb_semaines} sem × {len(jours)}/sem)."
     out = {
