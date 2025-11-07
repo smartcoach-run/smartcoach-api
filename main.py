@@ -210,6 +210,46 @@ def get_weekly_message(semaine: int):
     fields = row.get("fields", {})
     return fields.get("Message (template)", "") or fields.get("Message", "") or ""
 
+def get_message_coach_for(phase: str, semaine: int, niveau: str, objectif: str):
+    """
+    Sélectionne le message coach via 🗂️ Messages SmartCoach.
+
+    Format attendu dans Airtable (ID_Message) :
+       "<phase>|S<semaine>|<niveau>"
+
+    Exemples :
+       "Prépa générale|S2|Débutant"
+       "Affûtage|S1|Reprise"
+    """
+
+    # Normalisation des champs
+    phase_key = (phase or "").strip()
+    niveau_key = (niveau or "").strip().capitalize()  # prend "débutant" → "Débutant"
+    week_key = f"S{semaine}"
+
+    # Gestion spécifique du niveau Reprise (évite erreurs de casse)
+    if niveau_key.lower() == "reprise":
+        niveau_key = "Reprise"
+
+    # Construction de l'ID recherché dans Airtable
+    id_msg = f"{phase_key}|{week_key}|{niveau_key}"
+
+    row = TABLE_MESSAGES_SMARTCOACH.first(formula=f"{{ID_Message}} = '{id_msg}'")
+    if not row:
+        # 🔥 Fallback par niveau si message précis manquant :
+        row = TABLE_MESSAGES_SMARTCOACH.first(formula=f"{{ID_Message}} = '{week_key}|{niveau_key}'")
+
+    if not row:
+        return ""  # Pas de message → pas d’erreur
+
+    fields = row.get("fields", {})
+    return (
+        fields.get("Message (template)")
+        or fields.get("Message coach")
+        or fields.get("Message")
+        or ""
+    )
+
 # -----------------------------------------------------------------------------
 # Sélection de structure + pick séance type
 # -----------------------------------------------------------------------------
@@ -364,37 +404,41 @@ def generate_by_id():
 
     cf = coureur_rec.get("fields", {})
     
-    # --- 🧮 QUOTA SIMPLIFIÉ : compare Version plan au quota du groupe ---
-    version_actuelle = int_field(cf, "Version plan", "Version_plan", default=0)
+    # --- 🧮 QUOTA SIMPLIFIÉ ---
+    # Récupère la version actuelle du plan
+    version_plan = int_field(cf, "Version plan", default=0)
 
-    # Récupérer le groupe du coureur
+    # Récupère le groupe
     groupe_ref = cf.get("Groupe") or cf.get("🔗 Groupe")
     if isinstance(groupe_ref, list) and groupe_ref:
         groupe_id = groupe_ref[0]
+        groupe = TABLE_GROUPES.get(groupe_id)
     else:
-        # Si pas de groupe, on force "Autres"
-        grp_autres = TABLE_GROUPES.first(formula="{Nom du groupe} = 'Autres'")
-        if grp_autres:
-            groupe_id = grp_autres["id"]
-            TABLE_COUR.update(record_id, {"🔗 Groupe": [groupe_id]})
-        else:
-            return jsonify({"error": "❌ Aucun groupe et impossible de trouver 'Autres'."}), 400
+        groupe = None
 
-    # Lire quota du groupe
-    groupe = TABLE_GROUPES.get(groupe_id)
-    quota = int(groupe["fields"].get("Quota_mensuel") or 0)
+    # Quota du groupe (défaut = 999 = quasi illimité)
+    quota = int(groupe["fields"].get("Quota mensuel", 999)) if groupe else 999
 
-    # ✅ RÈGLE : si Version plan ≥ Quota → on bloque
-    if quota > 0 and version_actuelle >= quota:
+    # --- ⛔️ Si Version plan >= Quota mensuel → on bloque ---
+    if version_plan >= quota:
+        # On cherche le message SC_COACH_QUOTA
+        row = TABLE_MESSAGES_SMARTCOACH.first(formula="{ID_Message} = 'SC_COACH_QUOTA'")
+        message_txt = (
+            row["fields"].get("Message (template)")
+            if row else
+            "⛔️ Tu as déjà généré ton plan ce mois-ci. Reviens le mois prochain 🙂"
+        )
+
         return jsonify({
-            "error": "⛔️ Quota atteint : nouvelle génération impossible",
+            "status": "quota_block",
             "message_id": "SC_COACH_QUOTA",
-            "version_plan": version_actuelle,
-            "quota": quota
-        }), 403
+            "message": message_txt,
+            "quota": quota,
+            "version_plan": version_plan
+        }), 200
 
-    # Sinon → on génère → la nouvelle version sera Version plan + 1
-    nouvelle_version = version_actuelle + 1
+    # --- ✅ Sinon on continue la génération ---
+    nouvelle_version = version_plan + 1
 
     # Incrément du compteur (mais sans bloquer si quota = illimité)
     try:
