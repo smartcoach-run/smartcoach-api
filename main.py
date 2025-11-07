@@ -169,38 +169,6 @@ def safe_field(d: dict, candidates):
             return name
     return None
 
-
-def get_message_coach_for(phase: str, semaine: int, niveau: str, objectif: str):
-    """
-    Sélectionne le message coach via la colonne ID_Message dans 🗂️ Messages SmartCoach.
-    Format attendu : ID_Message = "<phase>|S<semaine>|<niveau>|<objectif>"
-    Exemple : "Prépa générale|S2|Débutant|10K"
-    """
-    # Normalisation légère
-    phase_key = phase.strip()
-    niveau_key = niveau.strip()
-    obj_key   = objectif.strip()
-    week_key  = f"S{semaine}"
-
-    # Construction exacte de l'ID_Message
-    id_msg = f"{phase_key}|{week_key}|{niveau_key}|{obj_key}"
-
-    row = TABLE_MESSAGES_SMARTCOACH.first(formula=f"{{ID_Message}} = '{id_msg}'")
-    if not row:
-        # fallback (sans objectif)
-        id_msg2 = f"{phase_key}|{week_key}|{niveau_key}"
-        row = TABLE_MESSAGES_SMARTCOACH.first(formula=f"{{ID_Message}} = '{id_msg2}'")
-        if not row:
-            return ""
-
-    fields = row.get("fields", {})
-    return (
-        fields.get("Message (template)") or
-        fields.get("Message coach") or
-        fields.get("Message") or
-        ""
-    )
-
 def get_weekly_message(semaine: int):
     # S1->M1, S2->M2, S3->M3, S4->M4, S5->M1, etc.
     code = f"M{((semaine - 1) % 4) + 1}"
@@ -209,46 +177,17 @@ def get_weekly_message(semaine: int):
         return ""
     fields = row.get("fields", {})
     return fields.get("Message (template)", "") or fields.get("Message", "") or ""
-
-def get_message_coach_for(phase: str, semaine: int, niveau: str, objectif: str):
+    
+def get_message_coach_from_type(cle_seance):
     """
-    Sélectionne le message coach via 🗂️ Messages SmartCoach.
-
-    Format attendu dans Airtable (ID_Message) :
-       "<phase>|S<semaine>|<niveau>"
-
-    Exemples :
-       "Prépa générale|S2|Débutant"
-       "Affûtage|S1|Reprise"
+    Retourne le message coach modèle basé sur la clé séance
+    depuis la table 'Séances types'.
     """
-
-    # Normalisation des champs
-    phase_key = (phase or "").strip()
-    niveau_key = (niveau or "").strip().capitalize()  # prend "débutant" → "Débutant"
-    week_key = f"S{semaine}"
-
-    # Gestion spécifique du niveau Reprise (évite erreurs de casse)
-    if niveau_key.lower() == "reprise":
-        niveau_key = "Reprise"
-
-    # Construction de l'ID recherché dans Airtable
-    id_msg = f"{phase_key}|{week_key}|{niveau_key}"
-
-    row = TABLE_MESSAGES_SMARTCOACH.first(formula=f"{{ID_Message}} = '{id_msg}'")
-    if not row:
-        # 🔥 Fallback par niveau si message précis manquant :
-        row = TABLE_MESSAGES_SMARTCOACH.first(formula=f"{{ID_Message}} = '{week_key}|{niveau_key}'")
-
-    if not row:
-        return ""  # Pas de message → pas d’erreur
-
-    fields = row.get("fields", {})
-    return (
-        fields.get("Message (template)")
-        or fields.get("Message coach")
-        or fields.get("Message")
-        or ""
-    )
+    records = TABLE_SEANCES_TYPES.all()
+    for r in records:
+        if r["fields"].get("Clé séance") == cle_seance:
+            return r["fields"].get("Message_coach (modèle)")
+    return None
 
 # -----------------------------------------------------------------------------
 # Sélection de structure + pick séance type
@@ -539,11 +478,10 @@ def generate_by_id():
 
         # --- 🌧️ Cas fallback (pas de modèle trouvé) ---
         if not stype:
-            # valeurs fallback stables
-            fallback_nom   = short_type or "Footing"
-            fallback_cle   = short_type or "EF"
-            fallback_duree = 40
-            fallback_charge = 1
+            fallback_nom     = short_type or "Footing"
+            fallback_cle     = short_type or "EF"
+            fallback_duree   = 40
+            fallback_charge  = 1
 
             payload = {
                 "Coureur": [record_id],
@@ -559,18 +497,11 @@ def generate_by_id():
                 "Semaine": week_idx + 1
             }
 
-            msg_coach = get_message_coach_for(
-                phase=phase_row,
-                semaine=week_idx + 1,
-                niveau=niveau,
-                objectif=objectif
-            )
+            # ✅ Message coach → fallback léger et neutre
+            payload["Message coach"] = "Reste fluide et régulier, sans forcer."
 
-            if msg_coach:
-                payload["Message coach"] = msg_coach
-
+            # ✅ Message hebdomadaire SmartCoach
             msg_week = get_weekly_message(week_idx)
-
             if msg_week:
                 payload["Message hebdo"] = msg_week
 
@@ -604,12 +535,8 @@ def generate_by_id():
         if cle:
             payload["Clé séance"] = cle
 
-        msg_coach = get_message_coach_for(
-            phase=phase_row,
-            semaine=week_idx + 1,
-            niveau=niveau,
-            objectif=objectif
-        )
+        # --- Message coach (modèle depuis Séances types) ---
+        msg_coach = stf.get("Message_coach (modèle)") or stf.get("Message coach") or stf.get("Message_coach")
         if msg_coach:
             payload["Message coach"] = msg_coach
 
