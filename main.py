@@ -364,41 +364,37 @@ def generate_by_id():
 
     cf = coureur_rec.get("fields", {})
     
-    # --- 🧮 Quota mensuel (hérité du Groupe) ---
-    nb_demandes = cf.get("Nb_plans_mois") or 0
-    nb_demandes = int(nb_demandes)
+    # --- 🧮 QUOTA SIMPLIFIÉ : compare Version plan au quota du groupe ---
+    version_actuelle = int_field(cf, "Version plan", "Version_plan", default=0)
 
-    # Récupération du groupe du coureur
-    groupe_ref = cf.get("Groupe")
-    if isinstance(groupe_ref, list) and len(groupe_ref) > 0:
+    # Récupérer le groupe du coureur
+    groupe_ref = cf.get("Groupe") or cf.get("🔗 Groupe")
+    if isinstance(groupe_ref, list) and groupe_ref:
         groupe_id = groupe_ref[0]
-    elif isinstance(groupe_ref, str):
-        groupe_id = groupe_ref
     else:
-        groupe_id = None
-
-    # Si aucun groupe → affectation automatique du groupe "Autres"
-    if not groupe_id:
+        # Si pas de groupe, on force "Autres"
         grp_autres = TABLE_GROUPES.first(formula="{Nom du groupe} = 'Autres'")
         if grp_autres:
             groupe_id = grp_autres["id"]
             TABLE_COUR.update(record_id, {"🔗 Groupe": [groupe_id]})
         else:
-            return jsonify({"error": "❌ Aucun groupe défini et impossible de trouver 'Autres'."})
+            return jsonify({"error": "❌ Aucun groupe et impossible de trouver 'Autres'."}), 400
 
-    # Lecture du quota défini sur le groupe
+    # Lire quota du groupe
     groupe = TABLE_GROUPES.get(groupe_id)
-    quota = groupe["fields"].get("Quota_mensuel") or 0
-    quota = int(quota)
+    quota = int(groupe["fields"].get("Quota_mensuel") or 0)
 
-    # Application du quota
-    if quota > 0 and nb_demandes >= quota:
+    # ✅ RÈGLE : si Version plan ≥ Quota → on bloque
+    if quota > 0 and version_actuelle >= quota:
         return jsonify({
-            "error": "❌ Quota atteint : création de plan non autorisée",
+            "error": "⛔️ Quota atteint : nouvelle génération impossible",
             "message_id": "SC_COACH_QUOTA",
-            "nb_demandes": nb_demandes,
+            "version_plan": version_actuelle,
             "quota": quota
-        })
+        }), 403
+
+    # Sinon → on génère → la nouvelle version sera Version plan + 1
+    nouvelle_version = version_actuelle + 1
 
     # Incrément du compteur (mais sans bloquer si quota = illimité)
     try:
