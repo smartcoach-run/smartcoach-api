@@ -14,14 +14,16 @@ Env vars utiles (avec fallbacks lisibles) :
 - PORT (optionnel)
 """
 
-from datetime import datetime, timedelta, timezone, date
 import os
 import re
+import sys
+import math
+import json
+from datetime import datetime, timedelta, timezone, date
 from typing import List, Dict, Any, Optional, Tuple
 
 from flask import Flask, request, jsonify
 from pyairtable import Table
-from pyairtable.formulas import AND, match
 
 # -----------------------------------------------------------------------------
 # Utils ENV + Tables
@@ -49,7 +51,6 @@ def get_table(env_name: str, *fallback_names: str) -> Table:
         except Exception:
             pass
 
-    # essais en cascade
     last_err = None
     for fb in fallback_names:
         try:
@@ -60,129 +61,63 @@ def get_table(env_name: str, *fallback_names: str) -> Table:
         raise last_err
     raise RuntimeError(f"Impossible d'ouvrir la table {env_name}")
 
-# Tables (avec libellés FR compatibles avec tes captures)
+# Tables (avec libellés FR compatibles)
 TABLE_COUR                  = get_table("TABLE_COUR"                    , "👤 Coureurs", "Coureurs")
 TABLE_SEANCES               = get_table("TABLE_SEANCES"                 , "🏋️ Séances", "Séances")
 TABLE_ARCHIVES              = get_table("TABLE_ARCHIVES"                , "📦 Archives Séances", "Archives Séances", "Archives")
 TABLE_SEANCES_TYPES         = get_table("TABLE_SEANCES_TYPES"           , "📘 Séances types", "Séances types")
 TABLE_STRUCTURE             = get_table("TABLE_STRUCTURE"               , "📐 Structure Séances", "Structure Séances")
-TABLE_MAILS                 = get_table("TABLE_MAILS"                   , "✉️ Mails", "Mails")  # Optionnel, pas utilisé ici
+TABLE_MAILS                 = get_table("TABLE_MAILS"                   , "✉️ Mails", "Mails")  # Optionnel, non utilisé ici
 TABLE_MESSAGES_SMARTCOACH   = get_table("TABLE_MESSAGES_SMARTCOACH"     , "🗂️ Messages SmartCoach", "Messages SmartCoach")
-TABLE_GROUPES               = get_table("TABLE_GROUPES"                 , "👥 Groupes", "Groupes")
 
 # -----------------------------------------------------------------------------
-# Petits helpers
+# Petits helpers (parsing, mapping, etc.)
 # -----------------------------------------------------------------------------
 
 WEEKDAYS_FR = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
+DAY_ORDER   = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
 
-PHASE_KEY = {
-    "Prépa générale": "PG",
-    "Prépa spécifique": "PS",
-    "Affûtage": "AF"
+WEEKDAY_MAP = {
+    "Lundi": 0, "Mardi": 1, "Mercredi": 2, "Jeudi": 3,
+    "Vendredi": 4, "Samedi": 5, "Dimanche": 6,
 }
-
-DAY_ORDER = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
-
-def _as_list(val):
-    if not val:
-        return []
-    if isinstance(val, list):
-        return val
-    if isinstance(val, str):
-        # tolère "Lundi,Jeudi" ou "Lundi, Jeudi"
-        return [x.strip() for x in val.split(",") if x.strip()]
-    return []
-
-# ---------------------------------------------------
-# ✅ Récupération correcte des jours disponibles
-# ---------------------------------------------------
-def jours_dispo(cf):
-    """
-    Retourne une liste de jours (strings)
-    Fonctionne que le champ soit :
-    - multi-select → liste
-    - texte → converti proprement
-    """
-    raw = cf.get("Jours disponibles") or cf.get("📅 Jours disponibles")
-    if not raw:
-        return []
-    
-    if isinstance(raw, list):
-        # Multi-select → OK
-        return [j for j in raw if j]  # on nettoie
-
-    # Texte → split
-    return [j.strip() for j in str(raw).replace(",", " ").split() if j.strip()]
 
 def to_utc_iso(dt: datetime) -> str:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc).isoformat()
 
-# ---------------------------------------------------
-# ✅ Lecture de la date en tenant compte des formats
-# ---------------------------------------------------
-def parse_start_date(val):
-    """
-    Accepte :
-    - objet date/datetime venant d'Airtable
-    - string "YYYY-MM-DD"
-    - string "DD/MM/YYYY"
-    Retourne datetime.date
-    """
-    if not val:
-        return datetime.now().date()
-
-    # Si déjà de type date/datetime
-    if isinstance(val, datetime):
-        return val.date()
-    if isinstance(val, date):
-        return val
-    
-    # String ISO
-    try:
-        return datetime.fromisoformat(str(val)).date()
-    except:
-        pass
-    
-    # String DD/MM/YYYY
-    try:
-        return datetime.strptime(str(val), "%d/%m/%Y").date()
-    except:
-        return datetime.now().date()
-
-def parse_date_ddmmyyyy(value: str) -> datetime:
+def parse_date_ddmmyyyy(value: Any) -> datetime:
     """
     Gère automatiquement :
     - dd/mm/yyyy (format formulaire)
     - yyyy-mm-dd (format Airtable natif)
-    - datetime déjà parsée
+    - datetime/date déjà parsée
     - fallback = aujourd’hui UTC
     """
     if not value:
         return datetime.now(timezone.utc)
 
-    # Si déjà datetime → on renvoie tel quel
     if isinstance(value, datetime):
-        if value.tzinfo is None:
-            return value.replace(tzinfo=timezone.utc)
-        return value
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
-    value = str(value).strip()
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
 
-    # Format Airtable → yyyy-mm-dd
-    if re.match(r"^\d{4}-\d{2}-\d{2}", value):
+    s = str(value).strip()
+
+    # Format ISO / Airtable → yyyy-mm-dd
+    if re.match(r"^\d{4}-\d{2}-\d{2}", s):
         try:
-            y, m, d = value.split("-")
+            y, m, d = s.split("-")
             return datetime(int(y), int(m), int(d), tzinfo=timezone.utc)
         except Exception:
             pass
 
     # Format dd/mm/yyyy
-    if "/" in value:
+    if "/" in s:
         try:
-            d, m, y = value.split("/")
+            d, m, y = s.split("/")
             return datetime(int(y), int(m), int(d), tzinfo=timezone.utc)
         except Exception:
             pass
@@ -190,14 +125,22 @@ def parse_date_ddmmyyyy(value: str) -> datetime:
     # Fallback robuste
     return datetime.now(timezone.utc)
 
-def parse_any_date(val):
-    # tolère ISO "2025-11-09", "09/11/2025", et objets date/datetime
+def parse_start_date(val) -> date:
+    """
+    Accepte :
+    - objet date/datetime venant d'Airtable
+    - string "YYYY-MM-DD"
+    - string "DD/MM/YYYY"
+    Retourne datetime.date (avec fallback = aujourd’hui)
+    """
     if not val:
-        return None
+        return datetime.now().date()
+
     if isinstance(val, datetime):
         return val.date()
     if isinstance(val, date):
         return val
+
     s = str(val).strip()
     # ISO
     try:
@@ -206,10 +149,9 @@ def parse_any_date(val):
         pass
     # dd/mm/yyyy
     try:
-        d, m, y = s.split("/")
-        return date(int(y), int(m), int(d))
+        return datetime.strptime(s, "%d/%m/%Y").date()
     except Exception:
-        return None
+        return datetime.now().date()
 
 def int_field(fields: Dict[str, Any], *names: str, default: int = 0) -> int:
     for n in names:
@@ -228,128 +170,157 @@ def first_nonempty(fields: Dict[str, Any], *names: str, default=None):
             return fields[n]
     return default
 
-def pick_session_from_type(short_type: str):
+def jours_dispo(cf: Dict[str, Any]) -> List[str]:
     """
-    Fallback : récupère une séance type via le champ 'Type séance (court)'
-    dans 📘 Séances types.
+    Retourne une liste de jours (strings)
+    Fonctionne même si le champ est multi-select (liste) ou texte comma-separated.
     """
-    if not short_type:
-        return None
-    formula = f"{{Type séance (court)}} = '{short_type}'"
-    rows = TABLE_SEANCES_TYPES.all(formula=formula)
-    return rows[0] if rows else None
+    raw = cf.get("Jours disponibles") or cf.get("📅 Jours disponibles")
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return [j for j in raw if j]
+    return [j.strip() for j in str(raw).replace(",", " ").split() if j.strip()]
 
-# ---- Messages Coach helpers ----
-def safe_field(d: dict, candidates):
-    """Retourne le premier nom de champ existant parmi candidates dans un dict 'fields' Airtable."""
-    for name in candidates:
-        if name in d:
-            return name
-    return None
+def weekday_from_fr(d: str) -> int:
+    return WEEKDAY_MAP.get(d, 0)
 
-def get_weekly_message(semaine: int):
-    # S1->M1, S2->M2, S3->M3, S4->M4, S5->M1, etc.
-    code = f"M{((semaine - 1) % 4) + 1}"
+def first_occurrence_on_or_after(start: date, target_weekday: int) -> date:
+    delta = (target_weekday - start.weekday()) % 7
+    return start + timedelta(days=delta)
+
+def generate_dates(date_depart: date, nb_semaines: int, jours_final: List[str]) -> List[Tuple[int, str, date]]:
+    """
+    Génère une liste ordonnée de tuples : (index_semaine, jour_label, date_effective)
+    Semaine 0..nb_semaines-1 (on ajoutera +1 à l’écriture pour l’affichage).
+    """
+    if not jours_final:
+        return []
+
+    # Jours -> indices
+    days = [(day, WEEKDAY_MAP.get(day)) for day in jours_final if day in WEEKDAY_MAP]
+    slots = []
+
+    for week in range(nb_semaines):
+        base_date = date_depart + timedelta(weeks=week)
+        for day_label, target_wd in days:
+            session_date = first_occurrence_on_or_after(base_date, target_wd)
+            slots.append((week, day_label, session_date))
+
+    # Tri par date réelle pour respecter l’ordre chronologique
+    slots.sort(key=lambda x: x[2])
+    return slots
+
+# -----------------------------------------------------------------------------
+# Messages hebdo (optionnel)
+# -----------------------------------------------------------------------------
+
+def get_weekly_message(semaine_index_0: int) -> str:
+    """
+    S1->M1, S2->M2, S3->M3, S4->M4, S5->M1, etc.
+    On s’appuie sur la table 🗂️ Messages SmartCoach avec un champ ID_Message ∈ {M1..M4}
+    """
+    code = f"M{((semaine_index_0) % 4) + 1}"  # semaine_index_0 = 0..N-1
     row = TABLE_MESSAGES_SMARTCOACH.first(formula=f"{{ID_Message}} = '{code}'")
     if not row:
         return ""
     fields = row.get("fields", {})
     return fields.get("Message (template)", "") or fields.get("Message", "") or ""
-    
-def get_message_coach_from_type(cle_seance):
-    """
-    Retourne le message coach modèle basé sur la clé séance
-    depuis la table 'Séances types'.
-    """
-    records = TABLE_SEANCES_TYPES.all()
-    for r in records:
-        if r["fields"].get("Clé séance") == cle_seance:
-            return r["fields"].get("Message_coach (modèle)")
-    return None
 
 # -----------------------------------------------------------------------------
-# Sélection de structure + pick séance type
+# Archivage – robuste et verbeux
 # -----------------------------------------------------------------------------
-
-def get_structure_rows(phase: str):
-    """
-    Récupère l'ordre des séances pour une phase donnée
-    depuis 📐 Structure Séances.
-    Base1 / Base2 → mappés sur 'Prépa générale'.
-    """
-    phase_lookup = "Prépa générale" if phase in ("Base1", "Base2") else phase
-    formula = f"{{Phase}} = '{phase_lookup}'"
-    rows = TABLE_STRUCTURE.all(formula=formula)
-    if not rows:
-        raise ValueError(f"Aucune structure trouvée pour Phase={phase} (lookup={phase_lookup})")
-    return sorted(rows, key=lambda r: r.get("fields", {}).get("Ordre", 0))
-
-def OR_compat(*args):
-    # petit OR qui fonctionne comme pyairtable.formulas.OR (mais inline)
-    # Note : on peut imbriquer les AND/OR via Airtable, ici simplif.
-    from pyairtable.formulas import OR
-    return OR(*args)
-
-# Mapping Type séance (court) -> Type séance (Airtable multi-select)
-TYPE_MAP = {
-    "EF": "Footing",
-    "TECH": "Technique",
-    "SL": "Sortie longue",
-    "SEU": "Seuil",
-    "VMA": "VMA",
-    "AS10": "AS10",
-    "OFF": "Repos",
-    "VEILLE": "Activation légère",
-    "RACE": "Course",
-    "ACT": "Activation",
-}
-
-# -----------------------------------------------------------------------------
-# Archivage
-# -----------------------------------------------------------------------------
-import json
 
 def normalize_for_json(data):
     """
     Convertit proprement un dict Airtable en dict JSON-sérialisable :
     - sets → list
-    - objets complexes → string lisible
+    - datetime/date → isoformat
+    - objets complexes → string
     """
     if isinstance(data, dict):
         return {k: normalize_for_json(v) for k, v in data.items()}
-    elif isinstance(data, list):
+    if isinstance(data, list):
         return [normalize_for_json(x) for x in data]
-    elif isinstance(data, set):
-        return list(data)  # ✅ la cause du bug
-    else:
-        return data
+    if isinstance(data, set):
+        return list(data)
+    if isinstance(data, datetime):
+        return to_utc_iso(data)
+    if isinstance(data, date):
+        return data.isoformat()
+    return data
 
-def archive_existing_for_runner(record_id: str, version_actuelle: int) -> int:
+def normalize_seance_fields(fields: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Version nettoyée & stable des champs d'une séance,
+    prête à être archivée ou sérialisée.
+    """
+    return {
+        "Clé séance":               fields.get("Clé séance"),
+        "Coureur":                  fields.get("Coureur", []),
+        "Nom séance":               fields.get("Nom séance"),
+        "Phase":                    fields.get("Phase"),
+        "Type séance (court)":      fields.get("Type séance (court)"),
+        "Type séance":              fields.get("Type séance"),
+        "Durée (min)":              fields.get("Durée (min)"),
+        "Semaine":                  fields.get("Semaine"),
+        "Jour planifié":            fields.get("Jour planifié"),
+        "Charge":                   fields.get("Charge"),
+        "Version plan":             fields.get("Version plan"),
+        "Date":                     fields.get("Date"),
+        "Message coach":            fields.get("Message coach"),
+        "Message hebdo":            fields.get("Message hebdo"),
+        "Allure / zone":            fields.get("Allure / zone"),
+        "Source":                   fields.get("Source"),
+    }
+
+def _create_archive_row(payload_base: Dict[str, Any]) -> None:
+    """
+    Crée une ligne dans la table Archives en essayant 2 noms possibles pour l'ID,
+    afin d’être tolérant aux intitulés (avec/sans emoji).
+    """
+    id_variants = ["🆔 ID Séance Originale", "ID séance originale"]
+    last_exc = None
+    for field_name in id_variants:
+        p = payload_base.copy()
+        # remap la clé d’ID vers le nom essayé
+        p[field_name] = p.pop("__ID_SEANCE_ORIG__", None)
+        try:
+            TABLE_ARCHIVES.create(p)
+            return
+        except Exception as e:
+            last_exc = e
+    if last_exc:
+        raise last_exc
+
+def archive_existing_for_runner(record_id: str, version_reference: int) -> int:
     """
     Archive toutes les séances du coureur dont la Version plan est différente
-    de la version actuellement générée.
+    de la version de référence (version du coureur au moment T).
     """
     if not record_id:
         return 0
 
-    print(f"[ARCHIVE] Coureur = {record_id}, Version actuelle = {version_actuelle}")
+    print(f"[ARCHIVE] Coureur = {record_id}, Version de référence = {version_reference}")
 
-    # 🔍 On récupère les séances du coureur
+    # 1) Récupération des séances du coureur (champ lien 'Coureur')
     records = TABLE_SEANCES.all(
         formula=f"SEARCH('{record_id}', ARRAYJOIN({{Coureur}}, ','))"
     )
     print(f"[ARCHIVE] Séances trouvées = {len(records)}")
 
-    # 🎯 Filtrage sur version
+    # 2) Filtrer celles à archiver (≠ version_reference)
     to_archive = []
     for r in records:
-        f = r.get("fields", {})
-        v = f.get("Version plan") or f.get("Version_plan") or 0
-        try: v = int(v)
-        except: v = 0
+        fields = r.get("fields", {})
+        v = fields.get("Version plan") or fields.get("Version_plan") or 0
+        try:
+            v = int(v)
+        except Exception:
+            v = 0
 
         print(f" - {r['id']} → Version={v}")
-        if v != version_actuelle:
+        if v != version_reference:
             to_archive.append((r, v))
 
     if not to_archive:
@@ -357,101 +328,44 @@ def archive_existing_for_runner(record_id: str, version_actuelle: int) -> int:
         return 0
 
     print(f"[ARCHIVE] → {len(to_archive)} séances à archiver")
-    
+
     now_iso = to_utc_iso(datetime.now(timezone.utc))
     archived_count = 0
 
     for rec, v in to_archive:
         champs = rec.get("fields", {})
-
         try:
-            # ✅ Normalisation avant stockage
-            champs_json = json.dumps(normalize_for_json(champs), ensure_ascii=False)
+            data = normalize_seance_fields(champs)
+            champs_json = json.dumps(normalize_for_json(data), ensure_ascii=False)
 
-            TABLE_ARCHIVES.create({
-                "ID séance originale": rec.get("id"),
+            payload = {
+                "__ID_SEANCE_ORIG__": rec.get("id"),  # clé temporaire pour mappage tolérant
                 "Coureur": [record_id],
-                "Nom séance": champs.get("Nom séance"),
-                "Type séance": champs.get("Type séance"),
-                "Type séance (court)": champs.get("Type séance (court)"),
-                "Phase": champs.get("Phase"),
-                "Durée (min)": champs.get("Durée (min)"),
-                "Charge": champs.get("Charge"),
-                "Allure / zone": champs.get("Allure / zone"),
-                "Détails JSON": champs_json,   # ✅ Maintenant ce champ est du TEXTE propre
+                "Nom séance": data.get("Nom séance"),
+                "Clé séance": data.get("Clé séance"),
+                "Type séance": data.get("Type séance"),
+                "Type séance (court)": data.get("Type séance (court)"),
+                "Phase": data.get("Phase"),
+                "Durée (min)": data.get("Durée (min)"),
+                "Charge": data.get("Charge"),
+                "Allure / zone": data.get("Allure / zone"),
                 "Version plan": v,
+                "Date": data.get("Date"),
+                "Détails JSON": champs_json,
                 "Date archivage": now_iso,
-                "Source": "auto-archive"
-            })
+                "Source": "auto-archive",
+            }
 
+            _create_archive_row(payload)
             TABLE_SEANCES.delete(rec["id"])
             archived_count += 1
-            print(f"[ARCHIVE] ✅ Archivé → {rec.get('id')}")
+            print(f"[ARCHIVE] ✅ Archivé & supprimé → {rec.get('id')}")
 
         except Exception as e:
             print(f"[ARCHIVE] ❌ Erreur archivage {rec['id']}: {e}")
 
     print(f"[ARCHIVE] Terminé → {archived_count} séances archivées ✅")
     return archived_count
-
-# -----------------------------------------------------------------------------
-# Génération des dates (à partir de Date début plan + jours dispo)
-# -----------------------------------------------------------------------------
-
-def weekday_from_fr(d: str) -> int:
-    # Lundi=0 ... Dimanche=6 comme datetime.weekday()
-    mapping = {
-        "Lundi": 0, "Mardi": 1, "Mercredi": 2, "Jeudi": 3,
-        "Vendredi": 4, "Samedi": 5, "Dimanche": 6
-    }
-    return mapping.get(d, 0)
-
-def first_occurrence_on_or_after(start: date, target_weekday: int) -> date:
-    delta = (target_weekday - start.weekday()) % 7
-    return start + timedelta(days=delta)
-
-from datetime import timedelta
-
-WEEKDAY_MAP = {
-    "Lundi": 0,
-    "Mardi": 1,
-    "Mercredi": 2,
-    "Jeudi": 3,
-    "Vendredi": 4,
-    "Samedi": 5,
-    "Dimanche": 6,
-}
-
-def first_occurrence_on_or_after(start: date, target_weekday: int) -> date:
-    """Renvoie la première date ≥ start correspondant à target_weekday."""
-    delta = (target_weekday - start.weekday()) % 7
-    return start + timedelta(days=delta)
-
-def generate_dates(date_depart: date, nb_semaines: int, jours_final: list[str]):
-    """
-    Génère une liste ordonnée de tuples :
-    (index_semaine, jour_label, date_effective)
-    """
-    if not jours_final:
-        return []
-
-    # On convertit les jours en entiers
-    days = [(day, WEEKDAY_MAP.get(day)) for day in jours_final if day in WEEKDAY_MAP]
-    slots = []
-
-    for week in range(nb_semaines):
-        if week == 0:
-            base_date = date_depart
-        else:
-            base_date = date_depart + timedelta(weeks=week)
-
-        for day_label, target_wd in days:
-            session_date = first_occurrence_on_or_after(base_date, target_wd)
-            slots.append((week, day_label, session_date))
-
-    # Tri par date réelle pour respecter l’ordre dans la preview
-    slots.sort(key=lambda x: x[2])
-    return slots
 
 # -----------------------------------------------------------------------------
 # Flask
@@ -467,13 +381,6 @@ def root():
 def health():
     return jsonify(ok=True, t=to_utc_iso(datetime.now(timezone.utc)))
 
-def get_message_coach(message_key):
-    formula = f"{{Clé Message}} = '{message_key}'"
-    records = TABLE_MESSAGES_COACH.all(formula=formula)
-    if records:
-        return records[0]["fields"].get("Message (template)", "")
-    return ""
-
 # -----------------------------------------------------------------------------
 # Endpoint principal
 # -----------------------------------------------------------------------------
@@ -483,8 +390,9 @@ def generate_by_id():
     """
     JSON attendu : { "record_id": "recXXXXXXXX" }
     - Lit le coureur
-    - Archive l'ancien plan (s'il existe)
-    - Génère un nouveau plan Version+1
+    - Met à jour Version plan (Version+1)
+    - Archive les anciennes séances (≠ version courante)
+    - Génère un nouveau plan
     """
     data = request.get_json(silent=True) or {}
     record_id = data.get("record_id")
@@ -501,70 +409,65 @@ def generate_by_id():
     nb_demandes = int_field(cf, "Nb_plans_mois", default=0)
     try:
         TABLE_COUR.update(record_id, {"Nb_plans_mois": nb_demandes + 1})
-    except:
-        pass
+    except Exception as e:
+        print(f"[WARN] Maj Nb_plans_mois: {e}")
 
     # --- Paramètres principaux ---
     niveau   = first_nonempty(cf, "Niveau", "🧭 Niveau", default="Reprise")
     objectif = first_nonempty(cf, "Objectif", "🎯 Objectif", default="10K")
-    phase    = first_nonempty(cf, "Phase", "🏁 Phase", default="Base1")
+    phase    = first_nonempty(cf, "Phase", "🏁 Phase", default="Prépa générale")
 
+    # Fréquence cible (séances/semaine)
     freq = int_field(cf, "Fréquence", "Fréquence cible", "Fréquence_cible", default=2)
-    # --- Calcul dynamique du nombre de semaines ---
-    date_obj = cf.get("Date objectif") or cf.get("📅 Date objectif")
-    if date_obj:
-        date_obj = parse_date_ddmmyyyy(date_obj).date()
-        delta_days = (date_obj - date_depart).days
-        nb_semaines = max(1, math.ceil(delta_days / 7))
-    else:
-        nb_semaines = 8  # fallback
-
-    print(f"[GEN] Nombre de semaines = {nb_semaines}")
 
     # --- Jours choisis par l'utilisateur ---
     jours = (jours_dispo(cf) or [])
-
-    ORDER_JOURS = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
-    jours = sorted(jours, key=lambda j: ORDER_JOURS.index(j))
+    # Ordonner de façon stable
+    ORDER_JOURS = DAY_ORDER
+    jours = sorted(jours, key=lambda j: ORDER_JOURS.index(j) if j in ORDER_JOURS else 99)
 
     nb_jours_min = int_field(cf, "Nb_jours_min", "Nb jours min", default=2)
     if not jours:
         jours = ["Dimanche"] if nb_jours_min == 1 else ["Mercredi", "Dimanche"]
 
+    # Limiter au volume de la fréquence
     if len(jours) > freq:
         jours = jours[:freq]
 
-    # --- Date de début plan ---
-    start_val = first_nonempty(
-        cf,
-        "Date début plan (calculée)",
-        "Date début plan",
-        "📅 Date début plan",
-        default=None
-    )
+    # --- Dates : départ & objectif ---
+    start_val  = first_nonempty(cf, "Date début plan (calculée)", "Date début plan", "📅 Date début plan", default=None)
     date_depart = parse_start_date(start_val)
 
-    # --- Ajustement selon la date objectif ---
-    date_obj = cf.get("Date objectif") or cf.get("📅 Date objectif")
-    if date_obj:       
-        date_obj = parse_date_ddmmyyyy(date_obj).date()
-        import math
+    obj_val   = first_nonempty(cf, "Date objectif", "📅 Date objectif", default=None)
+    date_obj  = parse_date_ddmmyyyy(obj_val).date() if obj_val else None
 
+    # --- Calcul dynamique du nombre de semaines (inclut la dernière semaine) ---
+    if date_obj:
         delta_days = (date_obj - date_depart).days
-        nb_semaines = max(1, math.ceil(delta_days / 7))
+        # +1 pour s'assurer d'inclure la semaine de la course même si la date n'est pas alignée sur un Lundi
+        nb_semaines = max(1, math.ceil((delta_days + 1) / 7))
+    else:
+        nb_semaines = 8  # fallback
+    print(f"[GEN] start={date_depart} obj={date_obj} nb_semaines={nb_semaines} jours={jours}")
 
     # --- 2) Version + Archivage ---
     version_actuelle = int_field(cf, "Version plan", "Version_plan", default=0)
     nouvelle_version = version_actuelle + 1
 
-    # ✅ Archive sur la version actuelle avant incrément
-    nb_archives = archive_existing_for_runner(record_id, version_actuelle)
+    # Mise à jour de la version du coureur AVANT l’archivage
+    TABLE_COUR.update(record_id, {"Version plan": nouvelle_version})
 
+    # Archivage de tout ce qui n'a pas la version courante (nouvelle_version)
+    nb_archives = archive_existing_for_runner(record_id, nouvelle_version)
+    print(f"[ARCHIVE] → {nb_archives} séances archivées (ancienne version = {version_actuelle}, nouvelle = {nouvelle_version})")
 
     # --- 3) Structure des séances ---
-    structure_rows = get_structure_rows(phase)
-    if not structure_rows:
-        return jsonify(error="Aucune structure trouvée", phase=phase), 422
+    # Phase "Base1/Base2" mappée vers "Prépa générale"
+    phase_lookup = "Prépa générale" if phase in ("Base1", "Base2") else phase
+    rows = TABLE_STRUCTURE.all(formula=f"{{Phase}} = '{phase_lookup}'")
+    if not rows:
+        return jsonify(error="Aucune structure trouvée", phase=phase_lookup), 422
+    structure_rows = sorted(rows, key=lambda r: r.get("fields", {}).get("Ordre", 0))
 
     # --- 4) Génération des dates des séances ---
     slots = generate_dates(date_depart, nb_semaines, jours)
@@ -575,21 +478,23 @@ def generate_by_id():
     previews = []
     created = 0
 
-    for idx, (week_idx, day_label, date_obj) in enumerate(slots):
+    for idx, (week_idx, day_label, date_slot) in enumerate(slots):
         st = structure_rows[idx % len(structure_rows)]
         sf = st.get("fields", {})
 
-        short_type = first_nonempty(sf, "Type séance (court)", "Type seance (court)", "Type seance court")
-        phase_row  = first_nonempty(sf, "Phase", default=phase)
+        short_type = first_nonempty(sf, "Type séance (court)", "Type seance (court)", "Type seance court", default="EF")
+        phase_row  = first_nonempty(sf, "Phase", default=phase_lookup)
 
         linked_types = sf.get("Séances types") or sf.get("Seances types") or []
         if linked_types:
             stype = TABLE_SEANCES_TYPES.get(linked_types[0])
         else:
-            stype = pick_session_from_type(short_type)
+            # Fallback par clé courte
+            records = TABLE_SEANCES_TYPES.all(formula=f"{{Type séance (court)}} = '{short_type}'")
+            stype = records[0] if records else None
 
-        # --- Cas fallback ---
         if not stype:
+            # Fallback minimal
             payload = {
                 "Coureur": [record_id],
                 "Nom séance": short_type or "Footing",
@@ -599,9 +504,9 @@ def generate_by_id():
                 "Durée (min)": 40,
                 "Charge": 1,
                 "Jour planifié": day_label,
-                "Date": date_obj.isoformat(),
+                "Date": date_slot.isoformat(),
                 "Version plan": nouvelle_version,
-                "Semaine": (idx // len(jours)) + 1,
+                "Semaine": (week_idx + 1),
                 "Message coach": "Reste fluide et régulier, sans forcer."
             }
         else:
@@ -610,20 +515,18 @@ def generate_by_id():
                 "Coureur": [record_id],
                 "Nom séance": first_nonempty(stf, "Nom séance", "Nom", default="Séance"),
                 "Phase": phase_row,
-                "Type séance (court)": first_nonempty(stf, "Type séance (court)", default="EF"),
+                "Type séance (court)": first_nonempty(stf, "Type séance (court)", default=short_type),
                 "Durée (min)": int_field(stf, "Durée (min)", default=40),
                 "Charge": first_nonempty(stf, "Charge", default=None),
                 "Jour planifié": day_label,
-                "Date": date_obj.isoformat(),
+                "Date": date_slot.isoformat(),
                 "Version plan": nouvelle_version,
                 "Semaine": week_idx + 1
             }
-
             cle = first_nonempty(stf, "Clé séance", "Cle séance", "Cle")
             if cle:
                 payload["Clé séance"] = cle
-
-            msg_coach = stf.get("Message_coach (modèle)") or stf.get("Message coach") or stf.get("Message_coach")
+            msg_coach = first_nonempty(stf, "Message_coach (modèle)", "Message coach", "Message_coach", default=None)
             if msg_coach:
                 payload["Message coach"] = msg_coach
 
@@ -635,8 +538,11 @@ def generate_by_id():
         previews.append(payload)
         created += 1
 
-    # --- 6) Mise à jour de la version du coureur ---
-    TABLE_COUR.update(record_id, {"Version plan": nouvelle_version})
+    # --- 6) Remise de la version (sécurité idempotence) ---
+    try:
+        TABLE_COUR.update(record_id, {"Version plan": nouvelle_version})
+    except Exception as e:
+        print(f"[WARN] Maj Version plan finale: {e}")
 
     msg = f"✅ Nouveau plan généré — **Version {nouvelle_version}**\n{created} séances créées ({nb_semaines} sem × {len(jours)}/sem)."
     return jsonify({
@@ -652,7 +558,7 @@ def generate_by_id():
     }), 200
 
 # -----------------------------------------------------------------------------
-# Run
+# Debug version hash
 # -----------------------------------------------------------------------------
 
 import hashlib
@@ -661,16 +567,16 @@ import inspect
 @app.get("/_debug/version")
 def debug_version():
     try:
-        # On lit le contenu du fichier actuel
-        source = inspect.getsource(debug_version.__globals__['__loader__'].__class__)
-    except:
         source = inspect.getsource(sys.modules[__name__])
+    except Exception:
+        source = "no-source"
     h = hashlib.sha1(source.encode()).hexdigest()[:10]
+    return {"status": "running", "file_hash": h}
 
-    return {
-        "status": "running",
-        "file_hash": h
-    }
+# -----------------------------------------------------------------------------
+# Run
+# -----------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    port = int(os.environ.get("PORT", "5000"))
+    app.run(debug=True, host="0.0.0.0", port=port)
