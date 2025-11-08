@@ -350,7 +350,7 @@ def archive_existing_for_runner(record_id: str, version_reference: int) -> int:
                 "Charge": data.get("Charge"),
                 "Allure / zone": data.get("Allure / zone"),
                 "Version plan": v,
-                "Date": data.get("Date"),
+                "Date archivage": data.get("Date"),
                 "Détails JSON": champs_json,
                 "Date archivage": now_iso,
                 "Source": "auto-archive",
