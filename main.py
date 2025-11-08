@@ -511,7 +511,7 @@ def generate_by_id():
 
     # --- Paramètres principaux ---
     niveau   = first_nonempty(cf, "Niveau", "🧭 Niveau", default="Reprise")
-    objectif = first_nonempty(cf, "Objectif", "🎯 Objectif", default="10K")
+    objectif = first_nonempty(cf, "Objectif_normalisé", "Objectif", "🎯 Objectif", default="10K")
     phase    = first_nonempty(cf, "Phase", "🏁 Phase", default="Prépa générale")
     # VDOT utilisé pour calculer les allures et la stratégie de course
     vdot = int_field(cf, "VDOT_cible", "VDOT", default=45)
@@ -544,6 +544,12 @@ def generate_by_id():
     nb_sem_total = int_field(cf, "Nb_sem_total", default=8)  # ← ton champ maître
     nb_semaines = nb_sem_total
 
+    # --- Si date objectif définie → recalcul automatique du nombre de semaines ---
+    if date_obj:
+        jours_diff = (date_obj - date_depart).days
+        # Nombre de semaines pleines avant la course
+        nb_semaines = max(1, math.ceil(jours_diff / 7))
+
     # On ajoute systématiquement la dernière semaine de course si date_obj existe
     add_race_week = bool(date_obj)
 
@@ -570,6 +576,10 @@ def generate_by_id():
 
     # --- 4) Génération des dates des séances ---
     slots = generate_dates(date_depart, nb_semaines, jours)
+    # --- Si date objectif définie → couper toutes les séances après ---
+    if date_obj:
+        slots = [s for s in slots if s["date"] <= date_obj - timedelta(days=2)]
+
     if not slots:
         return jsonify(error="Aucun slot de date généré"), 422
 
@@ -645,39 +655,36 @@ def generate_by_id():
         created += 1
 
     # --- Ajout final de la semaine de course ---
-    if date_obj:
-        # 1) veille
-        veille = date_obj - timedelta(days=1)
-        TABLE_SEANCES.create({
-            "Coureur": [record_id],
-            "Nom séance": "📦 Veille de course — Relax + Réassurance",
-            "Clé séance": "VEILLE",
-            "Type séance (court)": "VEILLE",
-            "Phase": "Compétition",
-            "Semaine": nb_semaines,
-            "Jour planifié": veille.strftime("%A"),
-            "Date": veille.isoformat(),
-            "Version plan": nouvelle_version,
-            "Message coach": "15-20 min très facile + 3 lignes droites relâchées. On respire."
-        })
+if date_obj:
+    veille_date = date_obj - timedelta(days=1)
+    race_date = date_obj
+    TABLE_SEANCES.create({
+        "Coureur": [record_id],
+        "Nom séance": "📦 Veille de course — Relax + Réassurance",
+        "Clé séance": "VEILLE",
+        "Type séance (court)": "VEILLE",
+        "Phase": "Compétition",
+        "Semaine": nb_semaines,
+        "Jour planifié": veille_date.strftime("%A"),
+        "Date": veille_date.isoformat(),
+        "Version plan": nouvelle_version,
+        "Message coach": "15–20 min très facile + 3 lignes droites très relâchées."
+    })
+    TABLE_SEANCES.create({
+        "Coureur": [record_id],
+        "Nom séance": f"🏁 Jour de course — {objectif}",
+        "Clé séance": f"RACE_DAY_{objectif.upper()}",
+        "Type séance (court)": "COURSE",
+        "Phase": "Compétition",
+        "Semaine": nb_semaines,
+        "Jour planifié": race_date.strftime("%A"),
+        "Date": race_date.isoformat(),
+        "Version plan": nouvelle_version,
+        "Message coach": build_race_strategy(vdot, 10),
+        "Message hebdo": "Aujourd’hui tu t’exprimes. Tu as tout construit pour ça."
+    })
 
-        # 2) COURSE — 10 KM
-        TABLE_SEANCES.create({
-            "Coureur": [record_id],
-            "Nom séance": "🏁 Jour de course — 10 km",
-            "Clé séance": "RACE_DAY_10K",
-            "Type séance (court)": "COURSE",
-            "Phase": "Compétition",
-            "Semaine": nb_semaines,
-            "Jour planifié": date_obj.strftime("%A"),
-            "Date": date_obj.isoformat(),
-            "Version plan": nouvelle_version,
-            "Message coach": build_race_strategy(vdot, 10),
-            "Message hebdo": "Aujourd’hui tu t’exprimes. Tu as tout construit pour ça."
-        })
-
-
-    # --- 6) Remise de la version (sécurité idempotence) ---
+# --- 6) Remise de la version (sécurité idempotence) ---
     try:
         TABLE_COUR.update(record_id, {"Version plan": nouvelle_version})
     except Exception as e:
