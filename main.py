@@ -500,7 +500,9 @@ def generate_by_id():
     version_actuelle = int_field(cf, "Version plan", "Version_plan", default=0)
     nouvelle_version = version_actuelle + 1
 
-    nb_archives = archive_existing_for_runner(record_id, nouvelle_version - 1)
+    # ✅ Archive sur la version actuelle avant incrément
+    nb_archives = archive_existing_for_runner(record_id, version_actuelle)
+
 
     # --- 3) Structure des séances ---
     structure_rows = get_structure_rows(phase)
@@ -542,7 +544,7 @@ def generate_by_id():
                 "Jour planifié": day_label,
                 "Date": date_obj.isoformat(),
                 "Version plan": nouvelle_version,
-                "Semaine": week_idx + 1,
+                "Semaine": (idx // len(jours)) + 1,
                 "Message coach": "Reste fluide et régulier, sans forcer."
             }
         else:
