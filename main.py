@@ -243,6 +243,32 @@ def build_race_strategy(vdot: int, distance_km: int = 10) -> str:
         f"\nSouffle long, épaules basses, relâche max. Tu es prêt(e)."
     )
 
+def get_modele_seance_race(mode: str, objectif: str):
+    """
+    Récupère en base la séance VEILLE et RACE_DAY correspondant à l'objectif.
+    Exemples de clés recherchées :
+        VEILLE_10K, RACE_DAY_10K
+        VEILLE_SEMI, RACE_DAY_MARATHON
+    """
+    if not objectif:
+        return None, None
+
+    cle_race = f"RACE_DAY_{objectif.upper()}"
+    cle_veille = f"VEILLE_{objectif.upper()}"
+
+    # Recherche des séances modèles dans Types Séances
+    recs = TABLE_TYPES_SEANCES.all()
+
+    veille = next((r.get("fields") for r in recs
+                   if r["fields"].get("Type séance (court)") == cle_veille
+                   and r["fields"].get("Mode") == mode), None)
+
+    race = next((r.get("fields") for r in recs
+                 if r["fields"].get("Type séance (court)") == cle_race
+                 and r["fields"].get("Mode") == mode), None)
+
+    return veille, race
+
 # -----------------------------------------------------------------------------
 # Messages hebdo (optionnel)
 # -----------------------------------------------------------------------------
@@ -613,6 +639,43 @@ def generate_by_id():
         msg_week = get_weekly_message(week_idx)
         if msg_week:
             payload["Message hebdo"] = msg_week
+
+        # --- Injection automatique dernière semaine : VEILLE + RACE_DAY ---
+        mode = mode_normalise  # déjà déterminé
+        objectif = objectif_normalise  # ex: "10K", "SEMI", "MARATHON"
+
+        veille, course = get_modele_seance_race(mode, objectif)
+
+        if veille and course and nb_semaines > 1:
+            # On modifie la semaine finale (nb_semaines - 1)
+            semaine_finale = nb_semaines
+
+            # VEILLE = jour disponible juste avant RACE
+            # On place la course sur le dernier jour dispo
+            last_day = jours[-1]
+            veille_day = jours[-2] if len(jours) > 1 else jours[-1]
+
+            # On ajoute / remplace dans le plan
+            plan = [p for p in plan if p["Semaine"] < semaine_finale]
+
+            plan.append({
+                **course,
+                "Coureur": [record_id],
+                "Semaine": semaine_finale,
+                "Jour planifié": last_day,
+                "Type séance (court)": course.get("Type séance (court)"),
+                "Version plan": version_plan,
+            })
+
+            plan.append({
+                **veille,
+                "Coureur": [record_id],
+                "Semaine": semaine_finale,
+                "Jour planifié": veille_day,
+                "Type séance (court)": veille.get("Type séance (court)"),
+                "Version plan": version_plan,
+            })
+
 
         TABLE_SEANCES.create(payload)
         previews.append(payload)
