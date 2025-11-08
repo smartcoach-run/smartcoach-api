@@ -94,58 +94,63 @@ def _as_list(val):
         return [x.strip() for x in val.split(",") if x.strip()]
     return []
 
-def jours_dispo(cf, freq: int) -> list[str]:
+# ---------------------------------------------------
+# ✅ Récupération correcte des jours disponibles
+# ---------------------------------------------------
+def jours_dispo(cf):
     """
-    Retourne la liste finale des jours à programmer, dans l'ordre choisi par l'utilisateur,
-    tronquée à 'freq' éléments. Supporte :
-      - Multi-select "Jours disponibles" (ou variantes),
-      - 7 booléens (Lundi..Dimanche) éventuellement avec emojis/préfixes.
-    NE met pas de valeurs par défaut si l'utilisateur a bien saisi des jours.
+    Retourne une liste de jours (strings)
+    Fonctionne que le champ soit :
+    - multi-select → liste
+    - texte → converti proprement
     """
-    # 1) Multi-select (prioritaire si présent)
-    multi = (cf.get("Jours disponibles")
-             or cf.get("Jours_disponibles")
-             or cf.get("📅 Jours disponibles")
-             or cf.get("📅 Jours_dispo")
-             or cf.get("Jours")
-             or cf.get("Jours dispo")
-             or [])
-    days = []
-    if isinstance(multi, list) and multi and isinstance(multi[0], (str, dict)):
-        # cas multi-select airtable: [{name: "Lundi"}, ...] ou ["Lundi", ...]
-        for it in multi:
-            if isinstance(it, dict) and "name" in it:
-                days.append(it["name"])
-            elif isinstance(it, str):
-                days.append(it)
-        # on garde l'ordre multi-select tel quel
-        days = [d for d in days if d in DAY_ORDER]
-
-    # 2) Sinon, reconstruire depuis 7 booléens
-    if not days:
-        found = []
-        # tente différentes graphies de chaque jour
-        for d in DAY_ORDER:
-            v = (cf.get(d) or cf.get(f"✅ {d}") or cf.get(f"{d} dispo") or cf.get(f"{d} (dispo)"))
-            if isinstance(v, bool) and v:
-                found.append(d)
-        days = found
-
-    # 3) Si toujours vide → dernier recours: on laisse la fonction appelante décider d’un fallback
-    # (c'est volontaire de NE PAS injecter "Mercredi/Dimanche" ici)
-    if not days:
+    raw = cf.get("Jours disponibles") or cf.get("📅 Jours disponibles")
+    if not raw:
         return []
+    
+    if isinstance(raw, list):
+        # Multi-select → OK
+        return [j for j in raw if j]  # on nettoie
 
-    # 4) Respecte freq
-    if freq and len(days) > freq:
-        days = days[:freq]
-
-    return days
+    # Texte → split
+    return [j.strip() for j in str(raw).replace(",", " ").split() if j.strip()]
 
 def to_utc_iso(dt: datetime) -> str:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone(timezone.utc).isoformat()
+
+# ---------------------------------------------------
+# ✅ Lecture de la date en tenant compte des formats
+# ---------------------------------------------------
+def parse_start_date(val):
+    """
+    Accepte :
+    - objet date/datetime venant d'Airtable
+    - string "YYYY-MM-DD"
+    - string "DD/MM/YYYY"
+    Retourne datetime.date
+    """
+    if not val:
+        return datetime.now().date()
+
+    # Si déjà de type date/datetime
+    if isinstance(val, datetime):
+        return val.date()
+    if isinstance(val, date):
+        return val
+    
+    # String ISO
+    try:
+        return datetime.fromisoformat(str(val)).date()
+    except:
+        pass
+    
+    # String DD/MM/YYYY
+    try:
+        return datetime.strptime(str(val), "%d/%m/%Y").date()
+    except:
+        return datetime.now().date()
 
 def parse_date_ddmmyyyy(value: str) -> datetime:
     """
@@ -205,18 +210,6 @@ def parse_any_date(val):
         return date(int(y), int(m), int(d))
     except Exception:
         return None
-
-# --- Date départ stricte depuis Coureurs (aucun recalage) ---
-start_val = (cf.get("Date début plan (calculée)")
-             or cf.get("📅 Date début plan (calculée)")
-             or cf.get("Date début plan")
-             or cf.get("📅 Date début plan")
-             or None)
-
-date_depart = parse_any_date(start_val)
-if not date_depart:
-    return jsonify(error="Date début plan (calculée) manquante ou invalide"), 422
-
 
 def int_field(fields: Dict[str, Any], *names: str, default: int = 0) -> int:
     for n in names:
@@ -311,6 +304,26 @@ TYPE_MAP = {
     "ACT": "Activation",
 }
 
+# --- Avant l’archivage ---
+existing = TABLE_SEANCES.all(formula=f"FIND('{record_id}', ARRAYJOIN({{Coureur}}, ','))")
+
+# Vérifie si l’utilisateur a modifié des séances
+already_modified = False
+for rec in existing:
+    f = rec.get("fields", {})
+    if f.get("Séance modifiée") == True or f.get("Modifié") == True:
+        already_modified = True
+        break
+
+if already_modified:
+    row = TABLE_MESSAGES_SMARTCOACH.first(formula="{ID_Message} = 'SC_COACH_024'")
+    message_txt = row["fields"].get("Message (template)") if row else "Ton plan a été ajusté, je ne régénère pas automatiquement."
+    return jsonify({
+        "status": "manual_edit_detected",
+        "message_id": "SC_COACH_024",
+        "message": message_txt,
+        "version_plan": version_plan
+    }), 200
 
 # -----------------------------------------------------------------------------
 # Archivage
@@ -496,25 +509,35 @@ def generate_by_id():
     # Nb semaines (défaut 8)
     nb_semaines = int_field(cf, "Nb_semaines (calculé)", "Nb_semaines", "Semaines", "Nombre de semaines", default=8)
 
-    # Jours dispo (logique positive)
-    jours = jours_dispo(cf, freq)
+    # Jours dispo (multi-select)
+    jours = jours_dispo(cf)
+
+    # Ordre logique de la semaine
+    ORDER_JOURS = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
+    jours = sorted(jours, key=lambda j: ORDER_JOURS.index(j))
+
+    # Nombre minimum
+    nb_jours_min = int_field(cf, "Nb_jours_min", "Nb jours min", default=2)
+
     if not jours:
-        return jsonify(error="Aucun jour sélectionné dans le formulaire"), 422
+        jours = ["Dimanche"] if nb_jours_min == 1 else ["Mercredi", "Dimanche"]
 
     # On limite au nombre de séances / semaine (fréquence)
     if len(jours) > freq:
         jours = jours[:freq]
 
-    # Date début plan (dd/mm/yyyy)
-    # ✅ On lit la colonne calculée réelle dans Airtable
+    # --- Détermination propre de la Date de début plan ---
     start_val = first_nonempty(
-    cf,
-    "Date début plan (calculée)",
-    "Date début plan",
-    "📅 Date début plan",
-    default=None
-)
-    date_depart = parse_date_ddmmyyyy(start_val).date()
+        cf,
+        "Date début plan (calculée)",
+        "Date début plan",
+        "📅 Date début plan",
+        default=None
+    )
+    date_depart = parse_start_date(start_val)
+
+    # Interprétation robuste (ISO OU dd/mm/yyyy)
+    date_depart = parse_date_ddmmyyyy(start_val).date() if start_val else datetime.now(timezone.utc).date()
         
     # 🔥 Recalcul automatique si Date objectif existe
     date_obj = cf.get("Date objectif") or cf.get("📅 Date objectif")
@@ -644,7 +667,7 @@ def generate_by_id():
     msg = f"✅ Nouveau plan généré — **Version {nouvelle_version}**\n{created} séances créées ({nb_semaines} sem × {len(jours)}/sem)."
     out = {
         "status": "ok",
-        "message_id": "SC_COACH_024",
+        "message_id": "SC_COACH_021",
         "message": msg,
         "version_plan": nouvelle_version,
         "nb_semaines": nb_semaines,
