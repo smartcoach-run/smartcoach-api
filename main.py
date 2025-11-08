@@ -352,34 +352,33 @@ def archive_existing_for_runner(record_id: str, version_actuelle: int) -> int:
     now_iso = to_utc_iso(datetime.now(timezone.utc))
     archived_count = 0
 
+    import json  # ✅ Correction indispensable
+
     for rec, version_seance in to_archive:
         champs = rec.get("fields", {})
+
         try:
             TABLE_ARCHIVES.create({
                 "ID séance originale": rec.get("id"),
                 "Coureur": [record_id],
                 "Nom séance": champs.get("Nom séance"),
-                "Type séance": champs.get("Type séance"),
-                "Type séance (court)": champs.get("Type séance (court)"),
+                "Clé séance": champs.get("Clé séance"),  # ✅ tu as ce champ dans Archives
+                "Message coach": champs.get("Message coach"),  # ✅ on conserve
+                "Semaine": champs.get("Semaine"),
                 "Phase": champs.get("Phase"),
-                "Durée (min)": champs.get("Durée (min)"),
+                "Source": champs.get("Source"),
+                "Type séance (court)": champs.get("Type séance (court)"),
                 "Charge": champs.get("Charge"),
-                "Allure / zone": champs.get("Allure / zone"),
-                "Détails JSON": champs,
+                "Durée (min)": champs.get("Durée (min)"),
                 "Version plan": version_seance,
                 "Date archivage": now_iso,
-                "Source": "auto-archive"
+                "Source": "auto-archive",
+
+                # ✅ Correction → convertir le dict → texte (long text)
+                "Détails JSON": json.dumps(champs, ensure_ascii=False)
             })
 
-            TABLE_SEANCES.delete(rec["id"])
-            archived_count += 1
-            print(f"[ARCHIVE] ✅ Archivé & supprimé → {rec.get('id')}")
-
-        except Exception as e:
-            print(f"[ARCHIVE] ⚠️ Erreur archivage séance {rec.get('id')}: {e}")
-
-    print(f"[ARCHIVE] Terminé → {archived_count} séances archivées")
-    return archived_count
+            # ✅ Suppression de la séance ac
 
 # -----------------------------------------------------------------------------
 # Génération des dates (à partir de Date début plan + jours dispo)
