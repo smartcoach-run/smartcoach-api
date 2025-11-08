@@ -211,6 +211,38 @@ def generate_dates(date_depart, nb_semaines, jours):
 
     return slots
 
+def get_vdot_paces(vdot: int) -> dict:
+    """Retourne les allures du coureur (E, M, T, I, R) depuis Airtable."""
+    rows = TABLE_VDOT_REF.all(formula=f"{'{VDOT}'} = {vdot}")
+    if not rows:
+        return {}
+    rec = rows[0]["fields"]
+    return {
+        "E": rec.get("Sec_E"),
+        "M": rec.get("Sec_M"),
+        "T": rec.get("Sec_T"),
+        "I": rec.get("Sec_I"),
+        "R": rec.get("Sec_R"),
+    }
+
+def build_race_strategy(vdot: int, distance_km: int = 10) -> str:
+    paces = get_vdot_paces(vdot)
+    if not paces or not paces.get("M"):
+        return "Course plaisir : pars cool, stabilise, finis en maîtrise ✨"
+
+    sec_per_km = paces["M"]
+    minutes = sec_per_km // 60
+    seconds = sec_per_km % 60
+    pace_str = f"{minutes}:{seconds:02d}/km"
+
+    return (
+        f"🎯 **Stratégie 10 km**\n"
+        f"- Départ contrôlé 2 km → {pace_str} + 5 à 8 sec/km\n"
+        f"- Du km 3 au km 8 → stabilise à **{pace_str}**\n"
+        f"- Km 9-10 → si tu as du jus → accélère progressivement 💥\n"
+        f"\nSouffle long, épaules basses, relâche max. Tu es prêt(e)."
+    )
+
 # -----------------------------------------------------------------------------
 # Messages hebdo (optionnel)
 # -----------------------------------------------------------------------------
