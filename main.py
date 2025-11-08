@@ -195,19 +195,18 @@ def generate_dates(date_depart, nb_semaines, jours):
 
     for w in range(nb_semaines):
         for j in jours:
-            d = compute_date(current_date, j)
-
-            # ✅ Fin de cycle → dernière semaine
-            is_last_week = (w == nb_semaines - 1)
+            # ✅ calcule la date réelle du jour demandé
+            target_weekday = WEEKDAY_MAP.get(j, 0)
+            d = current_date + timedelta(days=(target_weekday - current_date.weekday()) % 7)
 
             slots.append({
                 "date": d,
                 "semaine": w + 1,
                 "jour": j,
-                "last_week": is_last_week,
+                "last_week": (w == nb_semaines - 1)
             })
 
-        # passe à la semaine suivante
+        # ✅ semaine suivante
         current_date += timedelta(days=7)
 
     return slots
