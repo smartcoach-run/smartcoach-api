@@ -311,12 +311,29 @@ TYPE_MAP = {
 def archive_existing_for_runner(record_id: str, version_actuelle: int) -> int:
     """
     Archive toutes les séances du coureur, puis supprime.
-    Écrit "Version plan" en copie et la date d’archivage.
+    Écrit 'Version plan' en copie et la date d’archivage.
+    Tolère le nom du champ lien: 'Coureur' ou '👤 Coureur'.
     """
     if not record_id:
         return 0
 
-    existing = TABLE_SEANCES.all(formula=f"FIND('{record_id}', ARRAYJOIN({{Coureur}}, ','))")
+    # On essaie d'abord avec {Coureur}, puis avec {👤 Coureur}
+    formulas = [
+        f"FIND('{record_id}', ARRAYJOIN({{Coureur}}, ','))",
+        f"FIND('{record_id}', ARRAYJOIN({{👤 Coureur}}, ','))",
+    ]
+
+    existing = []
+    for fml in formulas:
+        try:
+            rows = TABLE_SEANCES.all(formula=fml)
+            if rows:
+                existing = rows
+                break
+        except Exception:
+            # On ignore et on tente la formule suivante
+            pass
+
     if not existing:
         return 0
 
@@ -336,7 +353,7 @@ def archive_existing_for_runner(record_id: str, version_actuelle: int) -> int:
                 "Durée (min)": f.get("Durée (min)"),
                 "Charge": f.get("Charge"),
                 "Allure / zone": f.get("Allure / zone"),
-                "Détails JSON": f,  # trace utile
+                "Détails JSON": f,
                 "Version plan": version_actuelle,
                 "Date archivage": now_iso,
                 "Source": "auto-archive"
@@ -344,7 +361,7 @@ def archive_existing_for_runner(record_id: str, version_actuelle: int) -> int:
             TABLE_SEANCES.delete(rec["id"])
             n += 1
         except Exception:
-            # on continue, on ne bloque pas toute l'opération
+            # on poursuit l'archivage même si une ligne échoue
             pass
     return n
 
@@ -591,7 +608,7 @@ def generate_by_id():
         "jours_par_semaine": len(jours),
         "archives": nb_archives,
         "total": created,
-        "preview": previews[:10]
+        "preview": previews
     }), 200
 
 # -----------------------------------------------------------------------------
