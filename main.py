@@ -391,11 +391,13 @@ def generate_dates(date_depart: date, nb_semaines: int, jours_final: list[str]):
 
     # On convertit les jours en entiers
     days = [(day, WEEKDAY_MAP.get(day)) for day in jours_final if day in WEEKDAY_MAP]
-
     slots = []
 
     for week in range(nb_semaines):
-        base_date = date_depart + timedelta(weeks=week)
+        if week == 0:
+            base_date = date_depart
+        else:
+            base_date = date_depart + timedelta(weeks=week)
 
         for day_label, target_wd in days:
             session_date = first_occurrence_on_or_after(base_date, target_wd)
@@ -448,65 +450,8 @@ def generate_by_id():
     if not coureur_rec:
         return jsonify(error="Coureur introuvable"), 404
 
-    cf = coureur_rec.get("fields", {})
-
-    # --- Vérification si des séances ont déjà été modifiées → SC_COACH_024 ---
-    existing = TABLE_SEANCES.all(
-        formula=f"FIND('{record_id}', ARRAYJOIN({{Coureur}}, ','))"
-    )
-
-    already_modified = any(
-        rec.get("fields", {}).get("Séance modifiée") == True
-        or rec.get("fields", {}).get("Modifié") == True
-        for rec in existing
-    )
-
-    if already_modified:
-        row = TABLE_MESSAGES_SMARTCOACH.first(formula="{ID_Message} = 'SC_COACH_024'")
-        message_txt = row["fields"].get("Message (template)") if row else (
-            "Je vois que tu as déjà adapté certaines séances. Je ne régénère pas automatiquement le plan 🙂"
-        )
-
-        return jsonify({
-            "status": "manual_edit_detected",
-            "message_id": "SC_COACH_024",
-            "message": message_txt,
-            "version_plan": cf.get("Version plan", 0)
-        }), 200    
+    cf = coureur_rec.get("fields", {}) 
     
-    # --- 🧮 QUOTA SIMPLIFIÉ ---
-    # Récupère la version actuelle du plan
-    version_plan = int_field(cf, "Version plan", default=0)
-
-    # Récupère le groupe
-    groupe_ref = cf.get("Groupe") or cf.get("🔗 Groupe")
-    if isinstance(groupe_ref, list) and groupe_ref:
-        groupe_id = groupe_ref[0]
-        groupe = TABLE_GROUPES.get(groupe_id)
-    else:
-        groupe = None
-
-    # Quota du groupe (défaut = 999 = quasi illimité)
-    quota = int(groupe["fields"].get("Quota mensuel", 999)) if groupe else 999
-
-    # --- ⛔️ Si Version plan >= Quota mensuel → on bloque ---
-    if version_plan >= quota:
-        # On cherche le message SC_COACH_QUOTA
-        row = TABLE_MESSAGES_SMARTCOACH.first(formula="{ID_Message} = 'SC_COACH_QUOTA'")
-        message_txt = (
-            row["fields"].get("Message (template)")
-            if row else
-            "⛔️ Tu as déjà généré ton plan ce mois-ci. Reviens le mois prochain 🙂"
-        )
-
-        return jsonify({
-            "status": "quota_block",
-            "message_id": "SC_COACH_QUOTA",
-            "message": message_txt,
-            "quota": quota,
-            "version_plan": version_plan
-        }), 200
-
     # --- ✅ Sinon on continue la génération ---
     nouvelle_version = version_plan + 1
 
@@ -552,10 +497,14 @@ def generate_by_id():
         default=None
     )
     date_depart = parse_start_date(start_val)
+    # Si le coureur a défini des jours → aucun recalage automatique
+    if jours:
+        pass
+    else:
+        # Sinon → recalage automatique au lundi suivant
+        # (c’est exactement la logique que tu avais dans Airtable)
+        date_depart = date_depart + timedelta(days=(7 - date_depart.weekday()) % 7)
 
-    # Interprétation robuste (ISO OU dd/mm/yyyy)
-    date_depart = parse_date_ddmmyyyy(start_val).date() if start_val else datetime.now(timezone.utc).date()
-        
     # 🔥 Recalcul automatique si Date objectif existe
     date_obj = cf.get("Date objectif") or cf.get("📅 Date objectif")
     if date_obj:
