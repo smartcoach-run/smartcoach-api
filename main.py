@@ -82,6 +82,66 @@ PHASE_KEY = {
     "Affûtage": "AF"
 }
 
+DAY_ORDER = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+
+def _as_list(val):
+    if not val:
+        return []
+    if isinstance(val, list):
+        return val
+    if isinstance(val, str):
+        # tolère "Lundi,Jeudi" ou "Lundi, Jeudi"
+        return [x.strip() for x in val.split(",") if x.strip()]
+    return []
+
+def jours_dispo(cf, freq: int) -> list[str]:
+    """
+    Retourne la liste finale des jours à programmer, dans l'ordre choisi par l'utilisateur,
+    tronquée à 'freq' éléments. Supporte :
+      - Multi-select "Jours disponibles" (ou variantes),
+      - 7 booléens (Lundi..Dimanche) éventuellement avec emojis/préfixes.
+    NE met pas de valeurs par défaut si l'utilisateur a bien saisi des jours.
+    """
+    # 1) Multi-select (prioritaire si présent)
+    multi = (cf.get("Jours disponibles")
+             or cf.get("Jours_disponibles")
+             or cf.get("📅 Jours disponibles")
+             or cf.get("📅 Jours_dispo")
+             or cf.get("Jours")
+             or cf.get("Jours dispo")
+             or [])
+    days = []
+    if isinstance(multi, list) and multi and isinstance(multi[0], (str, dict)):
+        # cas multi-select airtable: [{name: "Lundi"}, ...] ou ["Lundi", ...]
+        for it in multi:
+            if isinstance(it, dict) and "name" in it:
+                days.append(it["name"])
+            elif isinstance(it, str):
+                days.append(it)
+        # on garde l'ordre multi-select tel quel
+        days = [d for d in days if d in DAY_ORDER]
+
+    # 2) Sinon, reconstruire depuis 7 booléens
+    if not days:
+        found = []
+        # tente différentes graphies de chaque jour
+        for d in DAY_ORDER:
+            v = (cf.get(d) or cf.get(f"✅ {d}") or cf.get(f"{d} dispo") or cf.get(f"{d} (dispo)"))
+            if isinstance(v, bool) and v:
+                found.append(d)
+        days = found
+
+    # 3) Si toujours vide → dernier recours: on laisse la fonction appelante décider d’un fallback
+    # (c'est volontaire de NE PAS injecter "Mercredi/Dimanche" ici)
+    if not days:
+        return []
+
+    # 4) Respecte freq
+    if freq and len(days) > freq:
+        days = days[:freq]
+
+    return days
+
 def to_utc_iso(dt: datetime) -> str:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
@@ -125,13 +185,38 @@ def parse_date_ddmmyyyy(value: str) -> datetime:
     # Fallback robuste
     return datetime.now(timezone.utc)
 
-def jours_dispo(fields: Dict[str, Any]) -> List[str]:
-    # Jours_disponibles (ex : ["Vendredi","Dimanche"])
-    j = fields.get("📅 Jours_disponibles") or fields.get("Jours_disponibles") or fields.get("Jours disponibles") or []
-    if not isinstance(j, list):  # si Multi-select renvoie str → le convertir
-        return []
-    # Conserver l'ordre tel que fourni
-    return [x for x in j if x in WEEKDAYS_FR]
+def parse_any_date(val):
+    # tolère ISO "2025-11-09", "09/11/2025", et objets date/datetime
+    if not val:
+        return None
+    if isinstance(val, datetime):
+        return val.date()
+    if isinstance(val, date):
+        return val
+    s = str(val).strip()
+    # ISO
+    try:
+        return datetime.fromisoformat(s).date()
+    except Exception:
+        pass
+    # dd/mm/yyyy
+    try:
+        d, m, y = s.split("/")
+        return date(int(y), int(m), int(d))
+    except Exception:
+        return None
+
+# --- Date départ stricte depuis Coureurs (aucun recalage) ---
+start_val = (cf.get("Date début plan (calculée)")
+             or cf.get("📅 Date début plan (calculée)")
+             or cf.get("Date début plan")
+             or cf.get("📅 Date début plan")
+             or None)
+
+date_depart = parse_any_date(start_val)
+if not date_depart:
+    return jsonify(error="Date début plan (calculée) manquante ou invalide"), 422
+
 
 def int_field(fields: Dict[str, Any], *names: str, default: int = 0) -> int:
     for n in names:
@@ -275,28 +360,44 @@ def archive_existing_for_runner(record_id: str, version_actuelle: int) -> int:
 # Génération des dates (à partir de Date début plan + jours dispo)
 # -----------------------------------------------------------------------------
 
-def generate_dates(start_date: datetime, nb_semaines: int, jours: List[str]) -> List[Tuple[int, str, datetime]]:
-    """
-    Retourne une liste (semaine_idx, jour_label, date_obj) triée par date croissante.
-    - start_date = lundi 1er essai ? Non → on garde la date et on place la 1ère occurrence
-      du jour demandé ≥ start_date, puis semaine par semaine.
-    """
-    # Map jour->offset weekday (0=Monday..6=Sunday)
-    idx_by_label = {lbl: i for i, lbl in enumerate(WEEKDAYS_FR)}
+def weekday_from_fr(d: str) -> int:
+    # Lundi=0 ... Dimanche=6 comme datetime.weekday()
+    mapping = {
+        "Lundi": 0, "Mardi": 1, "Mercredi": 2, "Jeudi": 3,
+        "Vendredi": 4, "Samedi": 5, "Dimanche": 6
+    }
+    return mapping.get(d, 0)
 
-    out = []
-    for w in range(nb_semaines):
-        # base de la semaine w = start_date + 7*w
-        base_w = start_date + timedelta(days=7*w)
-        for jlabel in jours:
-            target_dow = idx_by_label[jlabel]  # 0..6
-            # trouver le prochain 'target_dow' >= base_w
-            offset = (target_dow - base_w.weekday()) % 7
-            d = base_w + timedelta(days=offset)
-            out.append((w+1, jlabel, d))
+def first_occurrence_on_or_after(start: date, target_weekday: int) -> date:
+    delta = (target_weekday - start.weekday()) % 7
+    return start + timedelta(days=delta)
 
-    out.sort(key=lambda x: x[2])  # tri par date
-    return out
+def generate_dates(start_date: date, nb_semaines: int, days: list[str]) -> list[tuple[int, str, date]]:
+    """
+    Pour chaque semaine à partir de start_date (inclus),
+    génère des dates alignées sur les jours choisis par l'utilisateur,
+    en respectant l'ordre des 'days'.
+    Retourne une liste de tuples (week_idx, day_label, date_obj).
+    """
+    if not days or nb_semaines <= 0:
+        return []
+
+    # 1) pour la semaine 0 : on part de start_date → on prend la prochaine occurrence de chacun des jours
+    week0 = []
+    for day_label in days:
+        w = weekday_from_fr(day_label)
+        d0 = first_occurrence_on_or_after(start_date, w)
+        week0.append((0, day_label, d0))
+
+    # 2) semaines suivantes : +7 jours par semaine, en conservant l'ordre utilisateur
+    slots = list(week0)
+    for widx in range(1, nb_semaines):
+        for _, day_label, d0 in week0:
+            slots.append((widx, day_label, d0 + timedelta(weeks=widx)))
+
+    # tri par date croissante pour une timeline propre (optionnel)
+    slots.sort(key=lambda t: (t[2], weekday_from_fr(t[1])))
+    return slots
 
 # -----------------------------------------------------------------------------
 # Flask
@@ -396,16 +497,9 @@ def generate_by_id():
     nb_semaines = int_field(cf, "Nb_semaines (calculé)", "Nb_semaines", "Semaines", "Nombre de semaines", default=8)
 
     # Jours dispo (logique positive)
-    jours = jours_dispo(cf)
-    nb_jours_min = int_field(cf, "Nb_jours_min", "Nb jours min", default=2)
-
+    jours = jours_dispo(cf, freq)
     if not jours:
-        if nb_jours_min == 1:
-            # ✅ Message positif → on propose 1 jour cohérent
-            jours = ["Dimanche"]
-        else:
-            # ✅ Cas normal → fallback stable
-            jours = ["Mercredi", "Dimanche"]
+        return jsonify(error="Aucun jour sélectionné dans le formulaire"), 422
 
     # On limite au nombre de séances / semaine (fréquence)
     if len(jours) > freq:
@@ -422,11 +516,6 @@ def generate_by_id():
 )
     date_depart = parse_date_ddmmyyyy(start_val).date()
         
-    # Force à ne pas générer des séances dans le passé
-    today = datetime.now().date()
-    if date_depart < today:
-        date_depart = today
-
     # 🔥 Recalcul automatique si Date objectif existe
     date_obj = cf.get("Date objectif") or cf.get("📅 Date objectif")
     if date_obj:
@@ -435,7 +524,8 @@ def generate_by_id():
         nb_semaines = max(1, delta_days // 7)
     # ✅ On met à jour la valeur dans Airtable
     try:
-        TABLE_COUR.update(record_id, {"Nb_semaines (calculé)": nb_semaines})
+        nb_demandes = int_field(cf, "Nb_plans_mois", default=0)
+        TABLE_COUR.update(record_id, {"Nb_plans_mois": nb_demandes + 1})
     except Exception:
         pass  # on ne bloque pas la génération si la mise à jour échoue
 
