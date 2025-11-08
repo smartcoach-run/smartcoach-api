@@ -304,27 +304,6 @@ TYPE_MAP = {
     "ACT": "Activation",
 }
 
-# --- Avant l’archivage ---
-existing = TABLE_SEANCES.all(formula=f"FIND('{record_id}', ARRAYJOIN({{Coureur}}, ','))")
-
-# Vérifie si l’utilisateur a modifié des séances
-already_modified = False
-for rec in existing:
-    f = rec.get("fields", {})
-    if f.get("Séance modifiée") == True or f.get("Modifié") == True:
-        already_modified = True
-        break
-
-if already_modified:
-    row = TABLE_MESSAGES_SMARTCOACH.first(formula="{ID_Message} = 'SC_COACH_024'")
-    message_txt = row["fields"].get("Message (template)") if row else "Ton plan a été ajusté, je ne régénère pas automatiquement."
-    return jsonify({
-        "status": "manual_edit_detected",
-        "message_id": "SC_COACH_024",
-        "message": message_txt,
-        "version_plan": version_plan
-    }), 200
-
 # -----------------------------------------------------------------------------
 # Archivage
 # -----------------------------------------------------------------------------
@@ -456,6 +435,30 @@ def generate_by_id():
         return jsonify(error="Coureur introuvable"), 404
 
     cf = coureur_rec.get("fields", {})
+
+    # --- Vérification si des séances ont déjà été modifiées → SC_COACH_024 ---
+    existing = TABLE_SEANCES.all(
+        formula=f"FIND('{record_id}', ARRAYJOIN({{Coureur}}, ','))"
+    )
+
+    already_modified = any(
+        rec.get("fields", {}).get("Séance modifiée") == True
+        or rec.get("fields", {}).get("Modifié") == True
+        for rec in existing
+    )
+
+    if already_modified:
+        row = TABLE_MESSAGES_SMARTCOACH.first(formula="{ID_Message} = 'SC_COACH_024'")
+        message_txt = row["fields"].get("Message (template)") if row else (
+            "Je vois que tu as déjà adapté certaines séances. Je ne régénère pas automatiquement le plan 🙂"
+        )
+
+        return jsonify({
+            "status": "manual_edit_detected",
+            "message_id": "SC_COACH_024",
+            "message": message_txt,
+            "version_plan": cf.get("Version plan", 0)
+        }), 200    
     
     # --- 🧮 QUOTA SIMPLIFIÉ ---
     # Récupère la version actuelle du plan
