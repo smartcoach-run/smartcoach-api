@@ -239,7 +239,7 @@ def generate_dates(date_depart: date, nb_semaines: int, jours_final: List[str]) 
             "Message hebdo": "Aujourd’hui, tu t’exprimes. Tu as tout construit pour ça."
         })
 
-        continue
+        return None
 
     # Tri par date réelle pour respecter l’ordre chronologique
     slots.sort(key=lambda x: x[2])
