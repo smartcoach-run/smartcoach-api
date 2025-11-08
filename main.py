@@ -510,7 +510,16 @@ def generate_by_id():
     phase    = first_nonempty(cf, "Phase", "🏁 Phase", default="Base1")
 
     freq = int_field(cf, "Fréquence", "Fréquence cible", "Fréquence_cible", default=2)
-    nb_semaines = int_field(cf, "Nb_semaines (calculé)", "Nb_semaines", "Semaines", default=8)
+    # --- Calcul dynamique du nombre de semaines ---
+    date_obj = cf.get("Date objectif") or cf.get("📅 Date objectif")
+    if date_obj:
+        date_obj = parse_date_ddmmyyyy(date_obj).date()
+        delta_days = (date_obj - date_depart).days
+        nb_semaines = max(1, math.ceil(delta_days / 7))
+    else:
+        nb_semaines = 8  # fallback
+
+    print(f"[GEN] Nombre de semaines = {nb_semaines}")
 
     # --- Jours choisis par l'utilisateur ---
     jours = (jours_dispo(cf) or [])
