@@ -201,11 +201,45 @@ def generate_dates(date_depart: date, nb_semaines: int, jours_final: List[str]) 
     days = [(day, WEEKDAY_MAP.get(day)) for day in jours_final if day in WEEKDAY_MAP]
     slots = []
 
-    for week in range(1, nb_semaines + 1):
+    for week in range(0, nb_semaines + 1):
         base_date = date_depart + timedelta(weeks=week)
         for day_label, target_wd in days:
             session_date = first_occurrence_on_or_after(base_date, target_wd)
             slots.append((week, day_label, session_date))
+    # --- SEMAINE DE COURSE ---
+    if week_idx == nb_semaines - 1:
+        
+        # 1) VEILLE
+        veille_date = date_obj - timedelta(days=1)
+        TABLE_SEANCES.create({
+            "Coureur": [record_id],
+            "Nom séance": "📦 Veille de course — Relax + Réassurance",
+            "Clé séance": "VEILLE",
+            "Type séance (court)": "VEILLE",
+            "Phase": "Compétition",
+            "Semaine": nb_semaines,
+            "Jour planifié": veille_date.strftime("%A"),
+            "Date": veille_date.isoformat(),
+            "Version plan": nouvelle_version,
+            "Message coach": "15-20 min très facile + 3 lignes droites relâchées. On respire. On prépare demain."
+        })
+
+        # 2) RACE DAY
+        TABLE_SEANCES.create({
+            "Coureur": [record_id],
+            "Nom séance": "🏁 Jour de course — 10 km",
+            "Clé séance": "RACE_DAY_10K",
+            "Type séance (court)": "COURSE",
+            "Phase": "Compétition",
+            "Semaine": nb_semaines,
+            "Jour planifié": date_obj.strftime("%A"),
+            "Date": date_obj.isoformat(),
+            "Version plan": nouvelle_version,
+            "Message coach": build_race_strategy(vdot, 10),
+            "Message hebdo": "Aujourd’hui, tu t’exprimes. Tu as tout construit pour ça."
+        })
+
+        continue
 
     # Tri par date réelle pour respecter l’ordre chronologique
     slots.sort(key=lambda x: x[2])
@@ -380,6 +414,30 @@ def root():
 @app.get("/health")
 def health():
     return jsonify(ok=True, t=to_utc_iso(datetime.now(timezone.utc)))
+#------------------------------------------------------------------------------
+# STRATEGIE DE COURSE
+#------------------------------------------------------------------------------
+def build_race_strategy(vdot, distance_km):
+    # On utilise l’allure "M" comme base 10K (plus réaliste que T pour la course)
+    try:
+        allure_cible = get_pace_from_vdot(vdot, "M")
+    except:
+        allure_cible = "Allure confortable + contrôle"
+
+    return f"""
+🎯 Objectif : {distance_km} km
+Allure cible : {allure_cible} / km
+
+✅ Stratégie :
+- 0 → 2 km : Calme, tu poses la respiration.
+- 2 → 7 km : Stabilité. Régulier. Économie de geste.
+- 7 → 9 km : Tu réveilles le moteur, relâchement + fréquence.
+- Dernier km : Tu donnes ce qu'il reste, sans crispation.
+
+💡 Conseil :
+Le plus gros piège → partir trop vite.
+Viser **contrôle + relâchement** sur les 2 premiers kilomètres.
+"""
 
 # -----------------------------------------------------------------------------
 # Endpoint principal
@@ -445,7 +503,10 @@ def generate_by_id():
     if date_obj:
         delta_days = (date_obj - date_depart).days
         # +1 pour s'assurer d'inclure la semaine de la course même si la date n'est pas alignée sur un Lundi
-        nb_semaines = max(1, math.ceil((delta_days + 1) / 7))
+        nb_semaines = max(1, math.ceil(delta_days / 7))
+        # ✅ Ajoute automatiquement la SEMAINE DE COURSE
+        if date_obj:
+            nb_semaines += 1
     else:
         nb_semaines = 8  # fallback
     print(f"[GEN] start={date_depart} obj={date_obj} nb_semaines={nb_semaines} jours={jours}")
@@ -537,6 +598,39 @@ def generate_by_id():
         TABLE_SEANCES.create(payload)
         previews.append(payload)
         created += 1
+
+    # --- Ajout final de la semaine de course ---
+    if date_obj:
+        # 1) veille
+        veille = date_obj - timedelta(days=1)
+        TABLE_SEANCES.create({
+            "Coureur": [record_id],
+            "Nom séance": "📦 Veille de course — Relax + Réassurance",
+            "Clé séance": "VEILLE",
+            "Type séance (court)": "VEILLE",
+            "Phase": "Compétition",
+            "Semaine": nb_semaines,
+            "Jour planifié": veille.strftime("%A"),
+            "Date": veille.isoformat(),
+            "Version plan": nouvelle_version,
+            "Message coach": "15-20 min très facile + 3 lignes droites relâchées. On respire."
+        })
+
+        # 2) COURSE — 10 KM
+        TABLE_SEANCES.create({
+            "Coureur": [record_id],
+            "Nom séance": "🏁 Jour de course — 10 km",
+            "Clé séance": "RACE_DAY_10K",
+            "Type séance (court)": "COURSE",
+            "Phase": "Compétition",
+            "Semaine": nb_semaines,
+            "Jour planifié": date_obj.strftime("%A"),
+            "Date": date_obj.isoformat(),
+            "Version plan": nouvelle_version,
+            "Message coach": build_race_strategy(vdot, 10),
+            "Message hebdo": "Aujourd’hui tu t’exprimes. Tu as tout construit pour ça."
+        })
+
 
     # --- 6) Remise de la version (sécurité idempotence) ---
     try:
