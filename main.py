@@ -309,38 +309,34 @@ TYPE_MAP = {
 # -----------------------------------------------------------------------------
 
 def archive_existing_for_runner(record_id: str, version_actuelle: int) -> int:
-    """
-    Archive toutes les séances du coureur, puis supprime.
-    Écrit 'Version plan' en copie et la date d’archivage.
-    Tolère le nom du champ lien: 'Coureur' ou '👤 Coureur'.
-    """
     if not record_id:
         return 0
 
-    # On essaie d'abord avec {Coureur}, puis avec {👤 Coureur}
-    formulas = [
-        f"FIND('{record_id}', ARRAYJOIN({{Coureur}}, ','))",
-        f"FIND('{record_id}', ARRAYJOIN({{👤 Coureur}}, ','))",
-    ]
+    # On récupère toutes les séances liées au coureur
+    records = TABLE_SEANCES.all(
+        formula=f"FIND('{record_id}', ARRAYJOIN({{Coureur}}, ','))"
+    )
 
-    existing = []
-    for fml in formulas:
+    # On ne garde que celles dont la version est différente
+    to_archive = []
+    for r in records:
+        f = r.get("fields", {})
+        v = f.get("Version plan") or f.get("Version_plan") or 0
         try:
-            rows = TABLE_SEANCES.all(formula=fml)
-            if rows:
-                existing = rows
-                break
-        except Exception:
-            # On ignore et on tente la formule suivante
-            pass
+            v = int(v)
+        except:
+            v = 0
 
-    if not existing:
+        if v != version_actuelle:
+            to_archive.append(r)
+
+    if not to_archive:
         return 0
 
     n = 0
     now_iso = to_utc_iso(datetime.now(timezone.utc))
 
-    for rec in existing:
+    for rec in to_archive:
         f = rec.get("fields", {})
         try:
             TABLE_ARCHIVES.create({
@@ -354,15 +350,15 @@ def archive_existing_for_runner(record_id: str, version_actuelle: int) -> int:
                 "Charge": f.get("Charge"),
                 "Allure / zone": f.get("Allure / zone"),
                 "Détails JSON": f,
-                "Version plan": version_actuelle,
+                "Version plan": v,
                 "Date archivage": now_iso,
                 "Source": "auto-archive"
             })
             TABLE_SEANCES.delete(rec["id"])
             n += 1
-        except Exception:
-            # on poursuit l'archivage même si une ligne échoue
+        except:
             pass
+
     return n
 
 # -----------------------------------------------------------------------------
@@ -508,10 +504,12 @@ def generate_by_id():
 
     # --- Ajustement selon la date objectif ---
     date_obj = cf.get("Date objectif") or cf.get("📅 Date objectif")
-    if date_obj:
+    if date_obj:       
         date_obj = parse_date_ddmmyyyy(date_obj).date()
+        import math
+
         delta_days = (date_obj - date_depart).days
-        nb_semaines = max(1, delta_days // 7)
+        nb_semaines = max(1, math.ceil(delta_days / 7))
 
     # --- 2) Version + Archivage ---
     version_actuelle = int_field(cf, "Version plan", "Version_plan", default=0)
