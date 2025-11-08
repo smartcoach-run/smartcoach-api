@@ -309,57 +309,77 @@ TYPE_MAP = {
 # -----------------------------------------------------------------------------
 
 def archive_existing_for_runner(record_id: str, version_actuelle: int) -> int:
+    """
+    Archive toutes les séances du coureur dont la Version plan est différente
+    de la version actuellement générée.
+    """
     if not record_id:
         return 0
 
-    # On récupère toutes les séances liées au coureur
+    # --- DEBUG ---
+    print(f"[ARCHIVE] Coureur = {record_id}, Version actuelle = {version_actuelle}")
+
+    # 🔍 Recherche des séances liées au coureur (robuste)
     records = TABLE_SEANCES.all(
-        formula=f"FIND('{record_id}', ARRAYJOIN({{Coureur}}, ','))"
+        formula=f"SEARCH('{record_id}', ARRAYJOIN({{Coureur}}, ','))"
     )
 
-    # On ne garde que celles dont la version est différente
+    print(f"[ARCHIVE] Séances trouvées = {len(records)}")
+
+    # 🎯 On filtre celles dont la version est différente
     to_archive = []
     for r in records:
-        f = r.get("fields", {})
-        v = f.get("Version plan") or f.get("Version_plan") or 0
-        try:
-            v = int(v)
-        except:
-            v = 0
+        champs = r.get("fields", {})
+        version_seance = champs.get("Version plan") or champs.get("Version_plan") or 0
 
-        if v != version_actuelle:
-            to_archive.append(r)
+        try:
+            version_seance = int(version_seance)
+        except:
+            version_seance = 0
+
+        print(f" - Séance {r.get('id')} | version={version_seance}")
+
+        if version_seance != version_actuelle:
+            to_archive.append((r, version_seance))
 
     if not to_archive:
+        print("[ARCHIVE] Rien à archiver ✅")
         return 0
 
-    n = 0
-    now_iso = to_utc_iso(datetime.now(timezone.utc))
+    print(f"[ARCHIVE] À archiver = {len(to_archive)} séances")
 
-    for rec in to_archive:
-        f = rec.get("fields", {})
+    # 📦 Archivage et suppression
+    now_iso = to_utc_iso(datetime.now(timezone.utc))
+    archived_count = 0
+
+    for rec, version_seance in to_archive:
+        champs = rec.get("fields", {})
         try:
             TABLE_ARCHIVES.create({
                 "ID séance originale": rec.get("id"),
                 "Coureur": [record_id],
-                "Nom séance": f.get("Nom séance"),
-                "Type séance": f.get("Type séance"),
-                "Type séance (court)": f.get("Type séance (court)"),
-                "Phase": f.get("Phase"),
-                "Durée (min)": f.get("Durée (min)"),
-                "Charge": f.get("Charge"),
-                "Allure / zone": f.get("Allure / zone"),
-                "Détails JSON": f,
-                "Version plan": v,
+                "Nom séance": champs.get("Nom séance"),
+                "Type séance": champs.get("Type séance"),
+                "Type séance (court)": champs.get("Type séance (court)"),
+                "Phase": champs.get("Phase"),
+                "Durée (min)": champs.get("Durée (min)"),
+                "Charge": champs.get("Charge"),
+                "Allure / zone": champs.get("Allure / zone"),
+                "Détails JSON": champs,
+                "Version plan": version_seance,
                 "Date archivage": now_iso,
                 "Source": "auto-archive"
             })
-            TABLE_SEANCES.delete(rec["id"])
-            n += 1
-        except:
-            pass
 
-    return n
+            TABLE_SEANCES.delete(rec["id"])
+            archived_count += 1
+            print(f"[ARCHIVE] ✅ Archivé & supprimé → {rec.get('id')}")
+
+        except Exception as e:
+            print(f"[ARCHIVE] ⚠️ Erreur archivage séance {rec.get('id')}: {e}")
+
+    print(f"[ARCHIVE] Terminé → {archived_count} séances archivées")
+    return archived_count
 
 # -----------------------------------------------------------------------------
 # Génération des dates (à partir de Date début plan + jours dispo)
