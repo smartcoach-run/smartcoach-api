@@ -189,60 +189,27 @@ def first_occurrence_on_or_after(start: date, target_weekday: int) -> date:
     delta = (target_weekday - start.weekday()) % 7
     return start + timedelta(days=delta)
 
-def generate_dates(date_depart: date, nb_semaines: int, jours_final: List[str]) -> List[Tuple[int, str, date]]:
-    """
-    Génère une liste ordonnée de tuples : (index_semaine, jour_label, date_effective)
-    Semaine 0..nb_semaines-1 (on ajoutera +1 à l’écriture pour l’affichage).
-    """
-    if not jours_final:
-        return []
-
-    # Jours -> indices
-    days = [(day, WEEKDAY_MAP.get(day)) for day in jours_final if day in WEEKDAY_MAP]
+def generate_dates(date_depart, nb_semaines, jours):
     slots = []
+    current_date = date_depart
 
-    for week in range(0, nb_semaines + 1):
-        base_date = date_depart + timedelta(weeks=week)
-        for day_label, target_wd in days:
-            session_date = first_occurrence_on_or_after(base_date, target_wd)
-            slots.append((week, day_label, session_date))
-    # --- SEMAINE DE COURSE ---
-    if week_idx == nb_semaines - 1:
-        
-        # 1) VEILLE
-        veille_date = date_obj - timedelta(days=1)
-        TABLE_SEANCES.create({
-            "Coureur": [record_id],
-            "Nom séance": "📦 Veille de course — Relax + Réassurance",
-            "Clé séance": "VEILLE",
-            "Type séance (court)": "VEILLE",
-            "Phase": "Compétition",
-            "Semaine": nb_semaines,
-            "Jour planifié": veille_date.strftime("%A"),
-            "Date": veille_date.isoformat(),
-            "Version plan": nouvelle_version,
-            "Message coach": "15-20 min très facile + 3 lignes droites relâchées. On respire. On prépare demain."
-        })
+    for w in range(nb_semaines):
+        for j in jours:
+            d = compute_date(current_date, j)
 
-        # 2) RACE DAY
-        TABLE_SEANCES.create({
-            "Coureur": [record_id],
-            "Nom séance": "🏁 Jour de course — 10 km",
-            "Clé séance": "RACE_DAY_10K",
-            "Type séance (court)": "COURSE",
-            "Phase": "Compétition",
-            "Semaine": nb_semaines,
-            "Jour planifié": date_obj.strftime("%A"),
-            "Date": date_obj.isoformat(),
-            "Version plan": nouvelle_version,
-            "Message coach": build_race_strategy(vdot, 10),
-            "Message hebdo": "Aujourd’hui, tu t’exprimes. Tu as tout construit pour ça."
-        })
+            # ✅ Fin de cycle → dernière semaine
+            is_last_week = (w == nb_semaines - 1)
 
-        return None
+            slots.append({
+                "date": d,
+                "semaine": w + 1,
+                "jour": j,
+                "last_week": is_last_week,
+            })
 
-    # Tri par date réelle pour respecter l’ordre chronologique
-    slots.sort(key=lambda x: x[2])
+        # passe à la semaine suivante
+        current_date += timedelta(days=7)
+
     return slots
 
 # -----------------------------------------------------------------------------
