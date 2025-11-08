@@ -201,7 +201,7 @@ def generate_dates(date_depart: date, nb_semaines: int, jours_final: List[str]) 
     days = [(day, WEEKDAY_MAP.get(day)) for day in jours_final if day in WEEKDAY_MAP]
     slots = []
 
-    for week in range(nb_semaines):
+    for week in range(1, nb_semaines + 1):
         base_date = date_depart + timedelta(weeks=week)
         for day_label, target_wd in days:
             session_date = first_occurrence_on_or_after(base_date, target_wd)
