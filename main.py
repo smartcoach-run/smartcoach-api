@@ -69,7 +69,7 @@ TABLE_SEANCES_TYPES         = get_table("TABLE_SEANCES_TYPES"           , "📘 
 TABLE_STRUCTURE             = get_table("TABLE_STRUCTURE"               , "📐 Structure Séances", "Structure Séances")
 TABLE_MAILS                 = get_table("TABLE_MAILS"                   , "✉️ Mails", "Mails")  # Optionnel, non utilisé ici
 TABLE_MESSAGES_SMARTCOACH   = get_table("TABLE_MESSAGES_SMARTCOACH"     , "🗂️ Messages SmartCoach", "Messages SmartCoach")
-
+TABLE_VDOT_REF              = get_table("TABLE_VDOT_REF"                , "VDOT_References", "VDOT Reference", "VDOT")
 # -----------------------------------------------------------------------------
 # Petits helpers (parsing, mapping, etc.)
 # -----------------------------------------------------------------------------
@@ -380,6 +380,21 @@ def root():
 @app.get("/health")
 def health():
     return jsonify(ok=True, t=to_utc_iso(datetime.now(timezone.utc)))
+    
+# ------------------------------------------------------------------------------
+# Récupération d'allure depuis table VDOT_References (propre)
+# ------------------------------------------------------------------------------
+def get_pace_from_vdot(vdot: int, zone: str) -> str:
+    """
+    zone ∈ {"E","M","T","I","R"}
+    Retourne min/km (ex: "5:12")
+    """
+    recs = TABLE_VDOT_REF.all(formula=f"{{VDOT}} = {vdot} AND {{Zone}} = '{zone}'")
+    if not recs:
+        return "Allure non définie"
+    f = recs[0]["fields"]
+    return f.get("Allure (min/km)", f.get("Allure", "N/A"))
+    
 #------------------------------------------------------------------------------
 # STRATEGIE DE COURSE
 #------------------------------------------------------------------------------
@@ -467,16 +482,13 @@ def generate_by_id():
     obj_val   = first_nonempty(cf, "Date objectif", "📅 Date objectif", default=None)
     date_obj  = parse_date_ddmmyyyy(obj_val).date() if obj_val else None
 
-    # --- Calcul dynamique du nombre de semaines (inclut la dernière semaine) ---
-    if date_obj:
-        delta_days = (date_obj - date_depart).days
-        # +1 pour s'assurer d'inclure la semaine de la course même si la date n'est pas alignée sur un Lundi
-        nb_semaines = max(1, math.ceil(delta_days / 7))
-        # ✅ Ajoute automatiquement la SEMAINE DE COURSE
-        if date_obj:
-            nb_semaines += 1
-    else:
-        nb_semaines = 8  # fallback
+    # --- Calcul du nombre de semaines basé sur la table Coureurs ---
+    nb_sem_total = int_field(cf, "Nb_sem_total", default=8)  # ← ton champ maître
+    nb_semaines = nb_sem_total
+
+    # On ajoute systématiquement la dernière semaine de course si date_obj existe
+    add_race_week = bool(date_obj)
+
     print(f"[GEN] start={date_depart} obj={date_obj} nb_semaines={nb_semaines} jours={jours}")
 
     # --- 2) Version + Archivage ---
