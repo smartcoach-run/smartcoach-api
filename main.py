@@ -14,7 +14,7 @@ Env vars utiles (avec fallbacks lisibles) :
 - PORT (optionnel)
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 import os
 import re
 from typing import List, Dict, Any, Optional, Tuple
