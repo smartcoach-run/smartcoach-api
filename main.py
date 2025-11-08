@@ -519,8 +519,12 @@ def generate_by_id():
         pass  # on ne bloque pas la génération si la mise à jour échoue
 
     # 2) Version + Archivage
+    # Version du plan actuel du coureur
     version_actuelle = int_field(cf, "Version plan", "Version_plan", default=0)
+
+    # Nouvelle version = version + 1
     nouvelle_version = version_actuelle + 1
+
 
     # ✅ Archive même si Version plan = 0
     nb_archives = archive_existing_for_runner(record_id, nouvelle_version - 1)
