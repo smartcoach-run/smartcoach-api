@@ -359,26 +359,15 @@ def archive_existing_for_runner(record_id: str, version_actuelle: int) -> int:
 
         try:
             TABLE_ARCHIVES.create({
-                "ID séance originale": rec.get("id"),
-                "Coureur": [record_id],
-                "Nom séance": champs.get("Nom séance"),
-                "Clé séance": champs.get("Clé séance"),  # ✅ tu as ce champ dans Archives
-                "Message coach": champs.get("Message coach"),  # ✅ on conserve
-                "Semaine": champs.get("Semaine"),
-                "Phase": champs.get("Phase"),
-                "Source": champs.get("Source"),
-                "Type séance (court)": champs.get("Type séance (court)"),
-                "Charge": champs.get("Charge"),
-                "Durée (min)": champs.get("Durée (min)"),
-                "Version plan": version_seance,
-                "Date archivage": now_iso,
-                "Source": "auto-archive",
-
-                # ✅ Correction → convertir le dict → texte (long text)
-                "Détails JSON": json.dumps(champs, ensure_ascii=False)
+                ...
             })
 
-            # ✅ Suppression de la séance ac
+            TABLE_SEANCES.delete(rec["id"])
+            archived_count += 1
+            print(f"[ARCHIVE] ✅ Archivé & supprimé → {rec.get('id')}")
+
+        except Exception as e:   # ← CE BLOC ÉTAIT MANQUANT / MAL INDENTÉ
+            print(f"[ARCHIVE] ⚠️ Erreur archivage séance {rec.get('id')}: {e}")
 
 # -----------------------------------------------------------------------------
 # Génération des dates (à partir de Date début plan + jours dispo)
