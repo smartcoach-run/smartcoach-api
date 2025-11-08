@@ -307,6 +307,22 @@ TYPE_MAP = {
 # -----------------------------------------------------------------------------
 # Archivage
 # -----------------------------------------------------------------------------
+import json
+
+def normalize_for_json(data):
+    """
+    Convertit proprement un dict Airtable en dict JSON-sérialisable :
+    - sets → list
+    - objets complexes → string lisible
+    """
+    if isinstance(data, dict):
+        return {k: normalize_for_json(v) for k, v in data.items()}
+    elif isinstance(data, list):
+        return [normalize_for_json(x) for x in data]
+    elif isinstance(data, set):
+        return list(data)  # ✅ la cause du bug
+    else:
+        return data
 
 def archive_existing_for_runner(record_id: str, version_actuelle: int) -> int:
     """
@@ -316,58 +332,67 @@ def archive_existing_for_runner(record_id: str, version_actuelle: int) -> int:
     if not record_id:
         return 0
 
-    # --- DEBUG ---
     print(f"[ARCHIVE] Coureur = {record_id}, Version actuelle = {version_actuelle}")
 
-    # 🔍 Recherche des séances liées au coureur (robuste)
+    # 🔍 On récupère les séances du coureur
     records = TABLE_SEANCES.all(
         formula=f"SEARCH('{record_id}', ARRAYJOIN({{Coureur}}, ','))"
     )
-
     print(f"[ARCHIVE] Séances trouvées = {len(records)}")
 
-    # 🎯 On filtre celles dont la version est différente
+    # 🎯 Filtrage sur version
     to_archive = []
     for r in records:
-        champs = r.get("fields", {})
-        version_seance = champs.get("Version plan") or champs.get("Version_plan") or 0
+        f = r.get("fields", {})
+        v = f.get("Version plan") or f.get("Version_plan") or 0
+        try: v = int(v)
+        except: v = 0
 
-        try:
-            version_seance = int(version_seance)
-        except:
-            version_seance = 0
-
-        print(f" - Séance {r.get('id')} | version={version_seance}")
-
-        if version_seance != version_actuelle:
-            to_archive.append((r, version_seance))
+        print(f" - {r['id']} → Version={v}")
+        if v != version_actuelle:
+            to_archive.append((r, v))
 
     if not to_archive:
-        print("[ARCHIVE] Rien à archiver ✅")
+        print("[ARCHIVE] Aucun archivage nécessaire ✅")
         return 0
 
-    print(f"[ARCHIVE] À archiver = {len(to_archive)} séances")
-
-    # 📦 Archivage et suppression
+    print(f"[ARCHIVE] → {len(to_archive)} séances à archiver")
+    
     now_iso = to_utc_iso(datetime.now(timezone.utc))
     archived_count = 0
 
-    import json  # ✅ Correction indispensable
-
-    for rec, version_seance in to_archive:
+    for rec, v in to_archive:
         champs = rec.get("fields", {})
 
         try:
+            # ✅ Normalisation avant stockage
+            champs_json = json.dumps(normalize_for_json(champs), ensure_ascii=False)
+
             TABLE_ARCHIVES.create({
-                ...
+                "ID séance originale": rec.get("id"),
+                "Coureur": [record_id],
+                "Nom séance": champs.get("Nom séance"),
+                "Type séance": champs.get("Type séance"),
+                "Type séance (court)": champs.get("Type séance (court)"),
+                "Phase": champs.get("Phase"),
+                "Durée (min)": champs.get("Durée (min)"),
+                "Charge": champs.get("Charge"),
+                "Allure / zone": champs.get("Allure / zone"),
+                "Détails JSON": champs_json,   # ✅ Maintenant ce champ est du TEXTE propre
+                "Version plan": v,
+                "Date archivage": now_iso,
+                "Source": "auto-archive"
             })
 
             TABLE_SEANCES.delete(rec["id"])
             archived_count += 1
-            print(f"[ARCHIVE] ✅ Archivé & supprimé → {rec.get('id')}")
+            print(f"[ARCHIVE] ✅ Archivé → {rec.get('id')}")
 
-        except Exception as e:   # ← CE BLOC ÉTAIT MANQUANT / MAL INDENTÉ
-            print(f"[ARCHIVE] ⚠️ Erreur archivage séance {rec.get('id')}: {e}")
+        except Exception as e:
+            print(f"[ARCHIVE] ❌ Erreur archivage {rec['id']}: {e}")
+
+    print(f"[ARCHIVE] Terminé → {archived_count} séances archivées ✅")
+    return archived_count
 
 # -----------------------------------------------------------------------------
 # Génération des dates (à partir de Date début plan + jours dispo)
