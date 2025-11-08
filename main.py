@@ -364,31 +364,45 @@ def first_occurrence_on_or_after(start: date, target_weekday: int) -> date:
     delta = (target_weekday - start.weekday()) % 7
     return start + timedelta(days=delta)
 
-def generate_dates(start_date: date, nb_semaines: int, days: list[str]) -> list[tuple[int, str, date]]:
+from datetime import timedelta
+
+WEEKDAY_MAP = {
+    "Lundi": 0,
+    "Mardi": 1,
+    "Mercredi": 2,
+    "Jeudi": 3,
+    "Vendredi": 4,
+    "Samedi": 5,
+    "Dimanche": 6,
+}
+
+def first_occurrence_on_or_after(start: date, target_weekday: int) -> date:
+    """Renvoie la première date ≥ start correspondant à target_weekday."""
+    delta = (target_weekday - start.weekday()) % 7
+    return start + timedelta(days=delta)
+
+def generate_dates(date_depart: date, nb_semaines: int, jours_final: list[str]):
     """
-    Pour chaque semaine à partir de start_date (inclus),
-    génère des dates alignées sur les jours choisis par l'utilisateur,
-    en respectant l'ordre des 'days'.
-    Retourne une liste de tuples (week_idx, day_label, date_obj).
+    Génère une liste ordonnée de tuples :
+    (index_semaine, jour_label, date_effective)
     """
-    if not days or nb_semaines <= 0:
+    if not jours_final:
         return []
 
-    # 1) pour la semaine 0 : on part de start_date → on prend la prochaine occurrence de chacun des jours
-    week0 = []
-    for day_label in days:
-        w = weekday_from_fr(day_label)
-        d0 = first_occurrence_on_or_after(start_date, w)
-        week0.append((0, day_label, d0))
+    # On convertit les jours en entiers
+    days = [(day, WEEKDAY_MAP.get(day)) for day in jours_final if day in WEEKDAY_MAP]
 
-    # 2) semaines suivantes : +7 jours par semaine, en conservant l'ordre utilisateur
-    slots = list(week0)
-    for widx in range(1, nb_semaines):
-        for _, day_label, d0 in week0:
-            slots.append((widx, day_label, d0 + timedelta(weeks=widx)))
+    slots = []
 
-    # tri par date croissante pour une timeline propre (optionnel)
-    slots.sort(key=lambda t: (t[2], weekday_from_fr(t[1])))
+    for week in range(nb_semaines):
+        base_date = date_depart + timedelta(weeks=week)
+
+        for day_label, target_wd in days:
+            session_date = first_occurrence_on_or_after(base_date, target_wd)
+            slots.append((week, day_label, session_date))
+
+    # Tri par date réelle pour respecter l’ordre dans la preview
+    slots.sort(key=lambda x: x[2])
     return slots
 
 # -----------------------------------------------------------------------------
