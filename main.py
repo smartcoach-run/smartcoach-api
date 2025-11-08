@@ -440,6 +440,8 @@ def generate_by_id():
     niveau   = first_nonempty(cf, "Niveau", "🧭 Niveau", default="Reprise")
     objectif = first_nonempty(cf, "Objectif", "🎯 Objectif", default="10K")
     phase    = first_nonempty(cf, "Phase", "🏁 Phase", default="Prépa générale")
+    # VDOT utilisé pour calculer les allures et la stratégie de course
+    vdot = int_field(cf, "VDOT_cible", "VDOT", default=45)
 
     # Fréquence cible (séances/semaine)
     freq = int_field(cf, "Fréquence", "Fréquence cible", "Fréquence_cible", default=2)
@@ -505,7 +507,14 @@ def generate_by_id():
     previews = []
     created = 0
 
-    for idx, (week_idx, day_label, date_slot) in enumerate(slots):
+    for idx, s in enumerate(slots):
+        week_idx = s["semaine"]
+        day_label = s["jour"]
+        date_slot = s["date"]
+
+        # On détectera la dernière semaine ainsi :
+        last_week = s.get("last_week", False)
+
         st = structure_rows[idx % len(structure_rows)]
         sf = st.get("fields", {})
 
