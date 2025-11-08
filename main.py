@@ -613,5 +613,22 @@ def generate_by_id():
 # Run
 # -----------------------------------------------------------------------------
 
+import hashlib
+import inspect
+
+@app.get("/_debug/version")
+def debug_version():
+    try:
+        # On lit le contenu du fichier actuel
+        source = inspect.getsource(debug_version.__globals__['__loader__'].__class__)
+    except:
+        source = inspect.getsource(sys.modules[__name__])
+    h = hashlib.sha1(source.encode()).hexdigest()[:10]
+
+    return {
+        "status": "running",
+        "file_hash": h
+    }
+
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
