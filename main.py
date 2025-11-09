@@ -484,250 +484,146 @@ Viser **contrôle + relâchement** sur les 2 premiers kilomètres.
 
 @app.route("/generate_by_id", methods=["POST"])
 def generate_by_id():
-    """
-    JSON attendu : { "record_id": "recXXXXXXXX" }
-    - Lit le coureur
-    - Met à jour Version plan (Version+1)
-    - Archive les anciennes séances (≠ version courante)
-    - Génère un nouveau plan
-    """
     data = request.get_json(silent=True) or {}
     record_id = data.get("record_id")
     if not record_id:
         return jsonify(error="record_id manquant"), 400
 
-    # --- 1) Lecture du coureur ---
+    # --- Lecture coureur ---
     coureur_rec = TABLE_COUR.get(record_id)
     if not coureur_rec:
         return jsonify(error="Coureur introuvable"), 404
     cf = coureur_rec.get("fields", {})
 
-    # --- Nb demandes / mois ---
+    # Compteur demandes
     nb_demandes = int_field(cf, "Nb_plans_mois", default=0)
     try:
         TABLE_COUR.update(record_id, {"Nb_plans_mois": nb_demandes + 1})
-    except Exception as e:
-        print(f"[WARN] Maj Nb_plans_mois: {e}")
+    except:
+        pass
 
-    # --- Paramètres principaux ---
+    # Paramètres clefs
     niveau   = first_nonempty(cf, "Niveau", "🧭 Niveau", default="Reprise")
     objectif = first_nonempty(cf, "Objectif", "🎯 Objectif", default="10K")
     phase    = first_nonempty(cf, "Phase", "🏁 Phase", default="Prépa générale")
-    # VDOT utilisé pour calculer les allures et la stratégie de course
-    vdot = int_field(cf, "VDOT_cible", "VDOT", default=45)
+    vdot     = int_field(cf, "VDOT_cible", "VDOT", default=45)
+    freq     = int_field(cf, "Fréquence", "Fréquence cible", "Fréquence_cible", default=2)
 
-    # Fréquence cible (séances/semaine)
-    freq = int_field(cf, "Fréquence", "Fréquence cible", "Fréquence_cible", default=2)
-
-    # --- Jours choisis par l'utilisateur ---
-    jours = (jours_dispo(cf) or [])
-    # Ordonner de façon stable
-    ORDER_JOURS = DAY_ORDER
-    jours = sorted(jours, key=lambda j: ORDER_JOURS.index(j) if j in ORDER_JOURS else 99)
-
-    nb_jours_min = int_field(cf, "Nb_jours_min", "Nb jours min", default=2)
-    if not jours:
-        jours = ["Dimanche"] if nb_jours_min == 1 else ["Mercredi", "Dimanche"]
-
-    # Limiter au volume de la fréquence
+    # Jours
+    jours = jours_dispo(cf) or []
+    jours = sorted(jours, key=lambda j: DAY_ORDER.index(j) if j in DAY_ORDER else 99)
     if len(jours) > freq:
         jours = jours[:freq]
+    if not jours:
+        jours = ["Mercredi", "Dimanche"][:freq]
 
-    # --- Dates : départ & objectif ---
-    start_val  = first_nonempty(cf, "Date début plan (calculée)", "Date début plan", "📅 Date début plan", default=None)
-    date_depart = parse_start_date(start_val)
+    # Dates
+    date_depart = parse_start_date(first_nonempty(cf,
+        "Date début plan (calculée)", "Date début plan", "📅 Date début plan"))
+    obj_val = first_nonempty(cf, "Date objectif", "📅 Date objectif")
+    date_obj = parse_date_ddmmyyyy(obj_val).date() if obj_val else None
 
-    obj_val   = first_nonempty(cf, "Date objectif", "📅 Date objectif", default=None)
-    date_obj  = parse_date_ddmmyyyy(obj_val).date() if obj_val else None
-
-    # --- Calcul du nombre de semaines basé sur la table Coureurs ---
-    nb_sem_total = int_field(cf, "Nb_sem_total", default=8)  # ← ton champ maître
+    # Nombre de semaines
+    nb_sem_total = int_field(cf, "Nb_sem_total", default=8)
     nb_semaines = nb_sem_total
-
-    # --- Si date objectif définie → recalcul automatique du nombre de semaines ---
     if date_obj:
         jours_diff = (date_obj - date_depart).days
-        # Nombre de semaines pleines avant la course
         nb_semaines = max(1, math.ceil(jours_diff / 7))
 
-    # On ajoute systématiquement la dernière semaine de course si date_obj existe
-    add_race_week = bool(date_obj)
-
-    print(f"[GEN] start={date_depart} obj={date_obj} nb_semaines={nb_semaines} jours={jours}")
-
-    # --- 2) Version + Archivage ---
-    version_actuelle = int_field(cf, "Version plan", "Version_plan", default=0)
+    # Version + archivage
+    version_actuelle = int_field(cf, "Version plan", default=0)
     nouvelle_version = version_actuelle + 1
-
-    # Mise à jour de la version du coureur AVANT l’archivage
     TABLE_COUR.update(record_id, {"Version plan": nouvelle_version})
-
-    # Archivage de tout ce qui n'a pas la version courante (nouvelle_version)
     nb_archives = archive_existing_for_runner(record_id, nouvelle_version)
-    print(f"[ARCHIVE] → {nb_archives} séances archivées (ancienne version = {version_actuelle}, nouvelle = {nouvelle_version})")
 
-    # --- 3) Structure des séances ---
-    # Phase "Base1/Base2" mappée vers "Prépa générale"
+    # Structure séances
     phase_lookup = "Prépa générale" if phase in ("Base1", "Base2") else phase
     rows = TABLE_STRUCTURE.all(formula=f"{{Phase}} = '{phase_lookup}'")
     if not rows:
         return jsonify(error="Aucune structure trouvée", phase=phase_lookup), 422
     structure_rows = sorted(rows, key=lambda r: r.get("fields", {}).get("Ordre", 0))
 
-    # --- 4) Génération des dates des séances ---
+    # Génération slots
     slots = generate_dates(date_depart, nb_semaines, jours)
-    # --- Si date objectif définie → couper toutes les séances après ---
+
+    # ✅ Coupure automatique si objectif défini → on ne génère pas après J-2
     if date_obj:
         slots = [s for s in slots if s["date"] <= date_obj - timedelta(days=2)]
 
     if not slots:
-        return jsonify(error="Aucun slot de date généré"), 422
+        return jsonify(error="Aucune séance possible avant la course."), 422
 
-    # --- 5) Création des séances ---
     previews = []
     created = 0
 
+    # === Génération séances entrainement ===
     for idx, s in enumerate(slots):
-        week_idx = s["semaine"]
-        day_label = s["jour"]
         date_slot = s["date"]
-
-        # On détectera la dernière semaine ainsi :
-        last_week = s.get("last_week", False)
+        week_idx  = s["semaine"]
+        day_label = s["jour"]
 
         st = structure_rows[idx % len(structure_rows)]
         sf = st.get("fields", {})
 
-        short_type = first_nonempty(sf, "Type séance (court)", "Type seance (court)", "Type seance court", default="EF")
-        phase_row  = first_nonempty(sf, "Phase", default=phase_lookup)
+        short_type = first_nonempty(sf, "Type séance (court)", default="EF")
+        payload = {
+            "Coureur": [record_id],
+            "Nom séance": first_nonempty(sf, "Nom", "Nom séance", default="Séance"),
+            "Phase": first_nonempty(sf, "Phase", default=phase_lookup),
+            "Type séance (court)": short_type,
+            "Durée (min)": int_field(sf, "Durée (min)", default=40),
+            "Charge": first_nonempty(sf, "Charge", default=None),
+            "Jour planifié": day_label,
+            "Date": date_slot.isoformat(),
+            "Version plan": nouvelle_version,
+            "Semaine": week_idx + 1,
+        }
 
-        linked_types = sf.get("Séances types") or sf.get("Seances types") or []
-        if linked_types:
-            stype = TABLE_SEANCES_TYPES.get(linked_types[0])
-        else:
-            # Fallback par clé courte
-            records = TABLE_SEANCES_TYPES.all(formula=f"{{Type séance (court)}} = '{short_type}'")
-            stype = records[0] if records else None
+        cle = first_nonempty(sf, "Clé séance", "Cle", default=None)
+        if cle: payload["Clé séance"] = cle
 
-        if not stype:
-            # Fallback minimal
-            payload = {
-                "Coureur": [record_id],
-                "Nom séance": short_type or "Footing",
-                "Phase": phase_row,
-                "Clé séance": short_type or "EF",
-                "Type séance (court)": short_type or "EF",
-                "Durée (min)": 40,
-                "Charge": 1,
-                "Jour planifié": day_label,
-                "Date": date_slot.isoformat(),
-                "Version plan": nouvelle_version,
-                "Semaine": (week_idx + 1),
-                "Message coach": "Reste fluide et régulier, sans forcer."
-            }
-        else:
-            stf = stype.get("fields", {})
-            payload = {
-                "Coureur": [record_id],
-                "Nom séance": first_nonempty(stf, "Nom séance", "Nom", default="Séance"),
-                "Phase": phase_row,
-                "Type séance (court)": first_nonempty(stf, "Type séance (court)", default=short_type),
-                "Durée (min)": int_field(stf, "Durée (min)", default=40),
-                "Charge": first_nonempty(stf, "Charge", default=None),
-                "Jour planifié": day_label,
-                "Date": date_slot.isoformat(),
-                "Version plan": nouvelle_version,
-                "Semaine": week_idx + 1
-            }
-            cle = first_nonempty(stf, "Clé séance", "Cle séance", "Cle")
-            if cle:
-                payload["Clé séance"] = cle
-            msg_coach = first_nonempty(stf, "Message_coach (modèle)", "Message coach", "Message_coach", default=None)
-            if msg_coach:
-                payload["Message coach"] = msg_coach
+        msg_coach = first_nonempty(sf, "Message coach", "Message_coach", default=None)
+        if msg_coach: payload["Message coach"] = msg_coach
 
         msg_week = get_weekly_message(week_idx)
-        if msg_week:
-            payload["Message hebdo"] = msg_week
+        if msg_week: payload["Message hebdo"] = msg_week
 
         TABLE_SEANCES.create(payload)
         previews.append(payload)
         created += 1
 
-    # --- Ajout final de la semaine de course ---
+    # === ✅ Ajout VEILLE + JOUR J après la boucle ===
     if date_obj:
-        # 1) veille
         veille = date_obj - timedelta(days=1)
+
         TABLE_SEANCES.create({
             "Coureur": [record_id],
             "Nom séance": "📦 Veille de course — Relax + Réassurance",
-            "Clé séance": "VEILLE",
             "Type séance (court)": "VEILLE",
+            "Clé séance": "VEILLE",
             "Phase": "Compétition",
-            "Semaine": nb_semaines,
-            "Jour planifié": veille.strftime("%A"),
             "Date": veille.isoformat(),
+            "Jour planifié": veille.strftime("%A"),
             "Version plan": nouvelle_version,
-            "Message coach": "15-20 min très facile + 3 lignes droites relâchées. On respire."
+            "Semaine": nb_semaines,
+            "Message coach": "15–20 min facile + 3 lignes droites très relâchées."
         })
 
-        # 2) COURSE — 10 KM
         TABLE_SEANCES.create({
             "Coureur": [record_id],
-            "Nom séance": "🏁 Jour de course — 10 km",
-            "Clé séance": "RACE_DAY_10K",
+            "Nom séance": f"🏁 Jour de course — {objectif}",
             "Type séance (court)": "COURSE",
+            "Clé séance": f"RACE_DAY_{objectif.upper()}",
             "Phase": "Compétition",
-            "Semaine": nb_semaines,
-            "Jour planifié": date_obj.strftime("%A"),
             "Date": date_obj.isoformat(),
+            "Jour planifié": date_obj.strftime("%A"),
             "Version plan": nouvelle_version,
+            "Semaine": nb_semaines,
             "Message coach": build_race_strategy(vdot, 10),
             "Message hebdo": "Aujourd’hui tu t’exprimes. Tu as tout construit pour ça."
         })
 
-        # --- Ajout final automatique VEILLE + COURSE ---
-    if date_obj:
-            veille_date = date_obj - timedelta(days=1)
-            last_day = veille_date.strftime("%A")
-            race_day = date_obj.strftime("%A")
-
-            # Séance veille
-            TABLE_SEANCES.create({
-                "Coureur": [record_id],
-                "Nom séance": "📦 Veille de course — Relax + Réassurance",
-                "Clé séance": "VEILLE",
-                "Type séance (court)": "VEILLE",
-                "Phase": "Compétition",
-                "Semaine": nb_semaines,
-                "Jour planifié": last_day,
-                "Date": veille_date.isoformat(),
-                "Version plan": nouvelle_version,
-                "Message coach": "15–20 min très facile + 3 lignes droites très relâchées."
-            })
-
-            # Jour J
-            TABLE_SEANCES.create({
-                "Coureur": [record_id],
-                "Nom séance": f"🏁 Jour de course — {objectif}",
-                "Clé séance": f"RACE_DAY_{objectif.upper()}",
-                "Type séance (court)": "COURSE",
-                "Phase": "Compétition",
-                "Semaine": nb_semaines,
-                "Jour planifié": race_day,
-                "Date": date_obj.isoformat(),
-                "Version plan": nouvelle_version,
-                "Message coach": build_race_strategy(vdot, 10),
-                "Message hebdo": "Aujourd’hui tu t’exprimes. Tu as tout construit pour ça."
-            })
-
-    # --- 6) Remise de la version (sécurité idempotence) ---
-    try:
-        TABLE_COUR.update(record_id, {"Version plan": nouvelle_version})
-    except Exception as e:
-        print(f"[WARN] Maj Version plan finale: {e}")
-
-    msg = f"✅ Nouveau plan généré — **Version {nouvelle_version}**\n{created} séances créées ({nb_semaines} sem × {len(jours)}/sem)."
+    msg = f"✅ Nouveau plan généré — **Version {nouvelle_version}**\n{created} séances créées."
     return jsonify({
         "status": "ok",
         "message_id": "SC_COACH_021",
