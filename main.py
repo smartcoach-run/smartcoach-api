@@ -571,11 +571,16 @@ def generate_by_id():
         "Date début plan (calculée)", "Date début plan", "📅 Date début plan"))
     obj_val = first_nonempty(cf, "Date objectif", "📅 Date objectif")
     date_obj = parse_date_ddmmyyyy(obj_val).date() if obj_val else None
+    date_fin_plan = parse_start_date(cf.get("date_fin_plan")) if cf.get("date_fin_plan") else None
 
     # Nombre de semaines
     nb_sem_total = int_field(cf, "Nb_sem_total", default=8)
     nb_semaines = nb_sem_total
-    if date_obj:
+    if cf.get("date_fin_plan"):
+        dfp = parse_start_date(cf.get("date_fin_plan"))
+        jours_diff = (dfp - date_depart).days
+        nb_semaines = max(1, math.ceil(jours_diff / 7))
+    elif date_obj:
         jours_diff = (date_obj - date_depart).days
         nb_semaines = max(1, math.ceil(jours_diff / 7))
 
@@ -588,14 +593,14 @@ def generate_by_id():
     # Structure séances — remplacé par sélection directe dans 📘 Séances types
     filtre_parts = [
         f"{{Mode}} = 'Running'",
-        f"{{Phase}} = '{phase_lookup}'",
+        f"{{Phase}} = '{phase}'",
         f"{{Niveau}} = '{niveau}'",
         f"{{Objectif}} = '{objectif}'",
     ]
     formula = 'AND(' + ','.join(filtre_parts) + ')'
     rows = TABLE_SEANCES_TYPES.all(formula=formula)
     if not rows:
-        return jsonify(error="Aucun modèle trouvé dans Séances types", phase=phase_lookup, niveau=niveau, objectif=objectif), 422
+        return jsonify(error="Aucun modèle trouvé dans Séances types", phase=phase, niveau=niveau, objectif=objectif), 422
     # On ordonne par 'Ordre' si présent, sinon par 'Clé séance'
     structure_rows = sorted(
         rows,
@@ -603,7 +608,7 @@ def generate_by_id():
     )
     if debug:
         debug_logs.append({
-            'phase_lookup': phase_lookup,
+            'phase': phase,
             'nb_models': len(structure_rows),
             'first_keys': [r.get('fields', {}).get('Clé séance') for r in structure_rows[:5]]
         })
@@ -612,8 +617,8 @@ def generate_by_id():
     slots = generate_dates(date_depart, nb_semaines, jours)
 
     # ✅ Coupure automatique si objectif défini → on ne génère pas après J-2
-    if date_obj:
-        slots = [s for s in slots if s["date"] <= date_obj - timedelta(days=2)]
+    if date_fin_plan:
+        slots = [s for s in slots if s["date"] <= date_fin_plan - timedelta(days=2)]
 
     if not slots:
         return jsonify(error="Aucune séance possible avant la course."), 422
@@ -634,21 +639,32 @@ def generate_by_id():
         payload = {
             "Coureur": [record_id],
             "Nom séance": first_nonempty(sf, "Nom", "Nom séance", default="Séance"),
-            "Phase": first_nonempty(sf, "Phase", default=phase_lookup),
+            "Phase": first_nonempty(sf, "Phase", default=phase),
             "Type séance (court)": short_type,
             "Durée (min)": int_field(sf, "Durée (min)", default=40),
             "Charge": first_nonempty(sf, "Charge", default=None),
             "Jour planifié": day_label,
             "Date": date_slot.isoformat(),
             "Version plan": nouvelle_version,
-            "Semaine": week_idx + 1,
+            "Semaine": week_idx,
         }
 
         cle = first_nonempty(sf, "Clé séance", "Cle", default=None)
-        if cle: payload["Clé séance"] = cle
+        if cle:
+            payload["Clé séance"] = cle
+            # Compléter avec le référentiel si présent
+            ref = SEANCES_TYPES_MAP.get(cle)
+            if ref:
+                payload["Nom séance"] = ref.get("Nom séance") or payload["Nom séance"]
+                payload["Type séance (court)"] = ref.get("Type séance (court)") or payload["Type séance (court)"]
+                if ref.get("Durée (min)") is not None:
+                    payload["Durée (min)"] = ref.get("Durée (min)")
+                if ref.get("Charge") is not None:
+                    payload["Charge"] = ref.get("Charge")
 
         msg_coach = first_nonempty(sf, "Message coach", "Message_coach", default=None)
-        if msg_coach: payload["Message coach"] = msg_coach
+        if msg_coach:
+            payload["Message coach"] = msg_coach
 
         msg_week = get_weekly_message(week_idx)
         if msg_week: payload["Message hebdo"] = msg_week
@@ -656,48 +672,6 @@ def generate_by_id():
         TABLE_SEANCES.create(payload)
         previews.append(payload)
         created += 1
-
-            # JOUR DE COURSE
-        dist_km = distance_from_objectif(objectif)
-        payload_course = {
-            "Coureur": [record_id],
-            "Nom séance": f"🏁 Jour de course — {objectif}",
-            "Type séance (court)": "COURSE",
-            "Clé séance": f"RACE_DAY_{objectif.upper()}",
-            "Phase": "Course",
-            "Date": date_obj.isoformat(),
-            "Jour planifié": jour_course,
-            "Version plan": nouvelle_version,
-            "Semaine": nb_semaines,
-            "Message coach": build_race_strategy(vdot, dist_km),
-            "Message hebdo": "Aujourd’hui tu t’exprimes. Tu as tout construit pour ça."
-        }
-        TABLE_SEANCES.create(payload_course)
-        previews.append(payload_course)
-        created += 1
-
-        # === Fin de plan basée sur date_fin_plan (au lieu de date_obj) ===
-        date_fin_plan = cf.get("date_fin_plan")
-        if date_fin_plan:
-            date_fin_plan = parse_start_date(date_fin_plan)
-            veille_date = date_fin_plan - timedelta(days=1)
-
-            mode_normalise = objectif.lower()
-
-            # Running → Veille + Jour J
-            if mode_normalise in ["running", "course", "perf", "chrono"]:
-                # VEILLE
-                TABLE_SEANCES.create({
-                    "Coureur": [record_id],
-                    "Nom séance": "📦 Veille de course — Activation légère",
-                    "Type séance (court)": "VEILLE",
-                    "Phase": "Affûtage",
-                    "Date": veille_date.isoformat(),
-                    "Version plan": nouvelle_version,
-                    "Semaine": nb_semaines,
-                    "Message coach": "15–20 min facile + 3 LD très relâchées."
-                })
-                created += 1
 
                 # JOUR J
                 TABLE_SEANCES.create({
@@ -712,7 +686,34 @@ def generate_by_id():
                 })
                 created += 1
 
-    msg = fmsg = f"✅ Nouveau plan généré — **Version {nouvelle_version}**\n{created} séances créées."
+        # === Fin de plan basée sur date_fin_plan (ajout Veille + Jour J) ===
+    if date_fin_plan:
+        veille_date = date_fin_plan - timedelta(days=1)
+        # VEILLE
+        TABLE_SEANCES.create({
+            "Coureur": [record_id],
+            "Nom séance": "📦 Veille de course — Activation légère",
+            "Type séance (court)": "VEILLE",
+            "Phase": "Affûtage",
+            "Date": veille_date.isoformat(),
+            "Version plan": nouvelle_version,
+            "Semaine": nb_semaines,
+            "Message coach": "15–20 min facile + 3 LD très relâchées."
+        })
+        created += 1
+        # JOUR J
+        TABLE_SEANCES.create({
+            "Coureur": [record_id],
+            "Nom séance": f"🏁 Jour de course — {objectif}",
+            "Type séance (court)": "COURSE",
+            "Phase": "Course",
+            "Date": date_fin_plan.isoformat(),
+            "Version plan": nouvelle_version,
+            "Semaine": nb_semaines,
+            "Message coach": build_race_strategy(vdot, distance_from_objectif(objectif))
+        })
+        created += 1
+msg = fmsg = f"✅ Nouveau plan généré — **Version {nouvelle_version}**\n{created} séances créées."
     return jsonify({
         "status": "ok",
         "message_id": "SC_COACH_021",
