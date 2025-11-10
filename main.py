@@ -511,7 +511,7 @@ def generate_by_id():
             phase = phase_timeline[w]
 
             for j_index, off in enumerate(offsets[:jours_par_semaine]):
-                d = (monday + timedelta(days=off)).date()
+                d = monday + timedelta(days=off)
                 phase_for_pick = phase
                 if str(phase).lower() in ("prépa générale", "prepa generale", "base"):
                     phase_for_pick = "Base1" if (w % 2 == 0) else "Base2"
