@@ -301,6 +301,70 @@ def get_modele_seance_race(mode: str, objectif: str):
 
     return veille, race
 
+# ---- Helpers Airtable (formules) ----
+def _and(parts: list[str]) -> str:
+    return "AND(" + ",".join(parts) + ")"
+
+def _or(parts: list[str]) -> str:
+    return "OR(" + ",".join(parts) + ")"
+
+def fetch_models(mode: str, phase: str, niveau: str, objectif: str | None, debug_logs=None):
+    """
+    Sélectionne les modèles dans 📘 Séances types en tenant compte
+    des spécificités de ta base:
+    - Phase 'Prépa générale' = Base1 OR Base2
+    - Champ 'Objectif' (et non 'Objectif_normalisé')
+    - Relâchement: si aucun résultat avec Objectif, on réessaie sans l’Objectif
+    """
+    clauses = [f"{{Mode}} = '{mode}'"]
+
+    # Phase: map 'Prépa générale' -> Base1 OR Base2
+    if phase == "Prépa générale":
+        phase_clause = _or(["{Phase} = 'Base1'", "{Phase} = 'Base2'"])
+        clauses.append(phase_clause)
+    else:
+        clauses.append(f"{{Phase}} = '{phase}'")
+
+    # Niveau (ex: Reprise)
+    clauses.append(f"{{Niveau}} = '{niveau}'")
+
+    # Objectif (le champ s'appelle 'Objectif' dans ta table)
+    use_objectif = bool(objectif)
+    if use_objectif:
+        clauses_with_obj = clauses + [f"{{Objectif}} = '{objectif}'"]
+        formula = _and(clauses_with_obj)
+        rows = TABLE_SEANCES_TYPES.all(formula=formula)
+    else:
+        rows = []
+        formula = _and(clauses)
+
+    # Si rien trouvé avec l'Objectif, on relâche (Phase+Niveau uniquement)
+    if not rows:
+        formula_relax = _and(clauses)
+        rows = TABLE_SEANCES_TYPES.all(formula=formula_relax)
+
+    # Tri: Ordre puis Clé séance
+    rows = sorted(
+        rows,
+        key=lambda r: (
+            r.get("fields", {}).get("Ordre") is None,
+            r.get("fields", {}).get("Ordre", 0),
+            r.get("fields", {}).get("Clé séance", "")
+        )
+    )
+
+    if debug_logs is not None:
+        debug_logs.append({
+            "phase": phase,
+            "niveau": niveau,
+            "objectif": objectif,
+            "formula_used": formula if rows else formula_relax,
+            "nb_models": len(rows),
+            "first_keys": [r.get("fields", {}).get("Clé séance") for r in rows[:5]]
+        })
+
+    return rows
+
 # -----------------------------------------------------------------------------
 # Messages hebdo (optionnel)
 # -----------------------------------------------------------------------------
@@ -590,17 +654,18 @@ def generate_by_id():
     TABLE_COUR.update(record_id, {"Version plan": nouvelle_version})
     nb_archives = archive_existing_for_runner(record_id, nouvelle_version)
 
-    # Structure séances — remplacé par sélection directe dans 📘 Séances types
-    filtre_parts = [
-        f"{{Mode}} = 'Running'",
-        f"{{Phase}} = '{phase}'",
-        f"{{Niveau}} = '{niveau}'",
-        f"{{Objectif}} = '{objectif}'",
-    ]
-    formula = 'AND(' + ','.join(filtre_parts) + ')'
-    rows = TABLE_SEANCES_TYPES.all(formula=formula)
+    rows = fetch_models("Running", phase, niveau, objectif, debug_logs if debug else None)
+
     if not rows:
-        return jsonify(error="Aucun modèle trouvé dans Séances types", phase=phase, niveau=niveau, objectif=objectif), 422
+        return jsonify(
+            error="Aucun modèle trouvé dans Séances types",
+            phase=phase,
+            niveau=niveau,
+            objectif=objectif
+        ), 422
+
+    structure_rows = rows  # pour conserver la même variable dans le reste du script
+
     # On ordonne par 'Ordre' si présent, sinon par 'Clé séance'
     structure_rows = sorted(
         rows,
