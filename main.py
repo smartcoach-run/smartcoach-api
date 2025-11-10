@@ -390,7 +390,23 @@ def generate_by_id():
             return jsonify({"error": "Coureur introuvable"}), 404
         cf = cour["fields"]
 
-        # QUOTA
+        # --- Normalisation du champ "Quota mensuel" (Lookup → nombre) ---
+        quota_raw = cf.get("Quota mensuel")
+
+        # Convert lookup list → number
+        if isinstance(quota_raw, list):
+            quota_mensuel = quota_raw[0] if quota_raw else None
+        else:
+            quota_mensuel = quota_raw
+
+        # Valeur par défaut si champ vide
+        if quota_mensuel is None or quota_mensuel == "":
+            quota_mensuel = 999
+
+        # Réinjection dans les données du coureur (pour que check_quota le lise correctement)
+        cf["Quota mensuel"] = quota_mensuel
+
+        # --- Vérification du quota ---
         ok, refusal = check_quota(cour)
         if not ok:
             log_event(record_id, "quota_refused", level="warning", payload=refusal)
