@@ -657,6 +657,42 @@ def generate_by_id():
         previews.append(payload_course)
         created += 1
 
+        # === Fin de plan basée sur date_fin_plan (au lieu de date_obj) ===
+        date_fin_plan = cf.get("date_fin_plan")
+        if date_fin_plan:
+            date_fin_plan = parse_start_date(date_fin_plan)
+            veille_date = date_fin_plan - timedelta(days=1)
+
+            mode_normalise = objectif.lower()
+
+            # Running → Veille + Jour J
+            if mode_normalise in ["running", "course", "perf", "chrono"]:
+                # VEILLE
+                TABLE_SEANCES.create({
+                    "Coureur": [record_id],
+                    "Nom séance": "📦 Veille de course — Activation légère",
+                    "Type séance (court)": "VEILLE",
+                    "Phase": "Affûtage",
+                    "Date": veille_date.isoformat(),
+                    "Version plan": nouvelle_version,
+                    "Semaine": nb_semaines,
+                    "Message coach": "15–20 min facile + 3 LD très relâchées."
+                })
+                created += 1
+
+                # JOUR J
+                TABLE_SEANCES.create({
+                    "Coureur": [record_id],
+                    "Nom séance": f"🏁 Jour de course — {objectif}",
+                    "Type séance (court)": "COURSE",
+                    "Phase": "Course",
+                    "Date": date_fin_plan.isoformat(),
+                    "Version plan": nouvelle_version,
+                    "Semaine": nb_semaines,
+                    "Message coach": build_race_strategy(vdot, distance_from_objectif(objectif))
+                })
+                created += 1
+
     msg = fmsg = f"✅ Nouveau plan généré — **Version {nouvelle_version}**\n{created} séances créées."
     return jsonify({
         "status": "ok",
