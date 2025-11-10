@@ -1,30 +1,22 @@
 # -*- coding: utf-8 -*-
 """
 SmartCoach API — main.py
-Stabilisé (quota + phases + veille/race + messages + logs)
-Date: 2025-11-10
+Version: 2025-11-10 (stable)
 
-Fonctionnalités clés:
-- Contrôle QUOTA (SC_COACH_031) via Version plan vs Quota mensuel (et/ou Groupe)
-- Génération plan: semaines & jours par semaine configurables (par défaut 10 sem, 2 j/sem.)
-- Injection Message coach / hebdo depuis 📘 Séances types
-- Placement automatique VEILLE (J-1) & RACE (J) via 📘 Séances types:
-  Mode + Phase=Course + Niveau + Objectif, filtré par Clé séance contenant "VEILLE" / "RACE"
-- Conservation du nombre de séances en semaine de course (remplacements, pas d’ajout)
-- Archivage doux des anciennes séances (si champ "Archive" existe)
-- Incrément Version plan uniquement si création effective
-- Logs (🧱 Logs SmartCoach) optionnels et silencieux si table absente
-
-Hypothèses:
-- Tables: 👤 Coureurs, 🏋️ Séances, 📘 Séances types, ⚙️ Paramètres phases, 🗂️ Messages SmartCoach (optionnelle), 🧱 Logs SmartCoach (optionnelle), 👥 Groupes (optionnelle)
-- Champs tolérés par variantes (ex: Objectif / Objectif (normalisé) / Objectif_normalisé)
+Fonctionnalités:
+- Contrôle de quota (SC_COACH_031) avec normalisation Lookup -> number
+- Phases via ⚙️ Paramètres phases, dernière semaine forcée "Course"
+- Séances via 📘 Séances types (Mode + Phase + Niveau + Objectif)
+- Placement automatique VEILLE (J-1) & RACE (Jour J) en semaine de course
+- Archivage doux; incrément Version plan si création
+- Logs optionnels 🧱 Logs SmartCoach
 """
 
 import os
 import json
 import traceback
-from datetime import datetime, timedelta, date
 from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, timedelta, date
 
 from flask import Flask, request, jsonify
 from pyairtable import Api
@@ -41,7 +33,7 @@ if not AIRTABLE_KEY or not BASE_ID:
 
 api = Api(AIRTABLE_KEY)
 
-# Noms de tables
+# Noms des tables (ajuste si besoin)
 T_COUR = "👤 Coureurs"
 T_SEANCES = "🏋️ Séances"
 T_TYPES = "📘 Séances types"
@@ -50,11 +42,11 @@ T_MSGS = "🗂️ Messages SmartCoach"     # optionnelle
 T_LOGS = "🧱 Logs SmartCoach"         # optionnelle
 T_GROUPES = "👥 Groupes"              # optionnelle
 
-# Tables
-TAB_COUR = api.table(BASE_ID, T_COUR)
+# Ouverture tables
+TAB_COUR    = api.table(BASE_ID, T_COUR)
 TAB_SEANCES = api.table(BASE_ID, T_SEANCES)
-TAB_TYPES = api.table(BASE_ID, T_TYPES)
-TAB_PARAM = api.table(BASE_ID, T_PARAM)
+TAB_TYPES   = api.table(BASE_ID, T_TYPES)
+TAB_PARAM   = api.table(BASE_ID, T_PARAM)
 
 try:
     TAB_MSGS = api.table(BASE_ID, T_MSGS)
@@ -71,34 +63,22 @@ try:
 except Exception:
     TAB_GROUPES = None
 
-# Constantes
+# Paramètres par défaut
 DEFAULT_WEEKS = 10
 DEFAULT_JOURS_SEMAINE = 2
 DEFAULT_MODE = "Running"
 MESSAGE_ID_QUOTA = "SC_COACH_031"
 
-# Flex: noms de champs possibles côté Coureurs
-F_DATE_COURSE = ["date_course", "Date course", "Date objectif", "Jour de course"]
+# Tolérance noms de champs
+F_DATE_COURSE = ["date_course", "Date course", "Date objectif", "Jour de course", "Date Objectif"]
 F_OBJECTIF = ["Objectif", "Objectif (normalisé)", "Objectif_normalisé", "Type objectif normalisé"]
 F_NIVEAU = ["Niveau", "Niveau (normalisé)", "Niveau_normalisé", "Niveau coach"]
 F_MODE = ["Mode", "Mode (normalisé)"]
+F_JOURS_DISPO = ["Jours disponibles", "jours_disponibles", "Disponibilités"]
 
 # -----------------------------------------------------------------------------
 # HELPERS
 # -----------------------------------------------------------------------------
-
-def log_event(record_id: str, event: str, level: str = "info", payload: Optional[dict] = None):
-    if TAB_LOGS is None:
-        return
-    try:
-        TAB_LOGS.create({
-            "Record ID": record_id,
-            "Event": event,
-            "Level": level,
-            "Payload": json.dumps(payload or {}, ensure_ascii=False)
-        })
-    except Exception:
-        pass  # jamais bloquant
 
 def fget(fields: Dict[str, Any], names: List[str], default=None):
     for n in names:
@@ -114,23 +94,26 @@ def to_int(v, default=0) -> int:
     except Exception:
         return default
 
-def parse_iso_date(v) -> Optional[datetime]:
-    if not v:
+def normalize_date(x) -> Optional[date]:
+    """Retourne un objet date (ou None). Accepte date, datetime, str (YYYY-MM-DD)."""
+    if x is None:
         return None
-    if isinstance(v, datetime):
-        return v.replace(tzinfo=None)
-    if isinstance(v, date):
-        return datetime.combine(v, datetime.min.time())
-    s = str(v)
+    if isinstance(x, date) and not isinstance(x, datetime):
+        return x
+    if isinstance(x, datetime):
+        return x.date()
+    s = str(x).strip()
+    # Formats courants Airtable
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%Y-%m-%dT%H:%M:%S.%fZ"):
+        try:
+            return datetime.strptime(s, fmt).date()
+        except Exception:
+            continue
+    # Tentative ISO
     try:
-        return datetime.fromisoformat(s.replace("Z", "+00:00")).replace(tzinfo=None)
+        return datetime.fromisoformat(s.replace("Z", "+00:00")).date()
     except Exception:
-        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y"):
-            try:
-                return datetime.strptime(s, fmt)
-            except Exception:
-                continue
-    return None
+        return None
 
 def weekday_fr(d: date) -> str:
     names = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
@@ -142,23 +125,48 @@ def all_records(table) -> List[Dict[str, Any]]:
     except Exception:
         return []
 
-def check_quota(coureur: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
-    f = coureur.get("fields", {})
-    version = to_int(f.get("Version plan"), 0)
-    quota = to_int(f.get("Quota mensuel"), 0)
+def log_event(record_id: str, event: str, level: str = "info", payload: Optional[dict] = None):
+    if TAB_LOGS is None:
+        return
+    try:
+        TAB_LOGS.create({
+            "Record ID": record_id,
+            "Event": event,
+            "Level": level,
+            "Payload": json.dumps(payload or {}, ensure_ascii=False)
+        })
+    except Exception:
+        pass
 
-    # Surcharge/ajout via Groupe (optionnel)
+def normalize_lookup_number(v, default=None):
+    """Airtable Lookup -> retourne le 1er nombre; gère aussi number direct ou ''."""
+    if isinstance(v, list):
+        if not v:
+            return default
+        return to_int(v[0], default if default is not None else 0)
+    if v in (None, ""):
+        return default
+    return to_int(v, default if default is not None else 0)
+
+def check_quota(cour: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+    f = cour.get("fields", {})
+    version = to_int(f.get("Version plan"), 0)
+
+    # Quota côté Coureur (lookup possible)
+    quota = normalize_lookup_number(f.get("Quota mensuel"), None)
+
+    # Override via Groupe (si présent)
     try:
         if TAB_GROUPES and f.get("Groupe"):
-            # si lié, prend le 1er groupe
+            gid = None
             if isinstance(f["Groupe"], list) and f["Groupe"]:
                 gid = f["Groupe"][0]
-                g = api.table(BASE_ID, T_GROUPES).get(gid)
+            if gid:
+                g = TAB_GROUPES.get(gid)
                 gf = g.get("fields", {})
-                quota_groupe = to_int(gf.get("Quota mensuel"), 0)
-                if quota_groupe > 0:
-                    quota = quota_groupe  # override si groupe défini
-                # On peut aussi respecter un bool "Autoriser génération"
+                qg = normalize_lookup_number(gf.get("Quota mensuel"), None)
+                if qg is not None and qg > 0:
+                    quota = qg
                 autorise = gf.get("Autoriser génération")
                 if isinstance(autorise, bool) and not autorise:
                     return False, {
@@ -167,12 +175,16 @@ def check_quota(coureur: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
                         "message_id": MESSAGE_ID_QUOTA,
                         "message": "⛔️ Génération interdite par le groupe.",
                         "version_plan": version,
-                        "quota_mensuel": quota
+                        "quota_mensuel": quota if quota is not None else 0
                     }
     except Exception:
         pass
 
-    if quota <= 0 or version >= quota:
+    # Si quota non défini → ne pas bloquer
+    if quota is None:
+        quota = 999
+
+    if version >= quota:
         return False, {
             "status": "error",
             "error": "quota_exceeded",
@@ -184,6 +196,7 @@ def check_quota(coureur: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
     return True, {}
 
 def fetch_param_phases() -> List[Dict[str, Any]]:
+    """Retourne les phases triées par Ordre."""
     recs = all_records(TAB_PARAM)
     items = []
     for r in recs:
@@ -198,7 +211,11 @@ def fetch_param_phases() -> List[Dict[str, Any]]:
     return items
 
 def filter_types(phase: str, mode: str, objectif: Optional[str], niveau: Optional[str]) -> List[Dict[str, Any]]:
-    """Filtrage côté client: Mode + Phase (+ Objectif/niveau si présents)."""
+    """
+    Filtrage côté client sur 📘 Séances types:
+    - obligatoire: Mode + Phase
+    - optionnel: Objectif, Niveau (tolérance: champ simple ou liste)
+    """
     out = []
     for r in all_records(TAB_TYPES):
         f = r.get("fields", {})
@@ -206,12 +223,12 @@ def filter_types(phase: str, mode: str, objectif: Optional[str], niveau: Optiona
         f_phase = f.get("Phase") or f.get("Nom phase")
         if not f_phase:
             continue
-        if str(f_mode).lower() != str(mode).lower():
+        if str(f_mode).lower().strip() != str(mode).lower().strip():
             continue
-        if str(f_phase).lower() != str(phase).lower():
+        if str(f_phase).lower().strip() != str(phase).lower().strip():
             continue
 
-        # Objectif (peut être champ simple ou liste)
+        # Objectif
         if objectif:
             f_obj = f.get("Objectif") or f.get("Objectifs compatibles")
             if f_obj:
@@ -222,9 +239,9 @@ def filter_types(phase: str, mode: str, objectif: Optional[str], niveau: Optiona
                     if str(objectif).lower() not in str(f_obj).lower():
                         continue
 
-        # Niveau (tolérant)
+        # Niveau
         if niveau:
-            f_niv = f.get("Niveau") or f.get("Niveaux compat.") or f.get("Niveau (plage)")
+            f_niv = f.get("Niveau") or f.get("Niveaux compat.") or f.get("Niveau (plage)") or f.get("Niveaux compatibles")
             if f_niv:
                 if isinstance(f_niv, list):
                     if not any(str(niveau).lower() == str(x).lower() for x in f_niv):
@@ -266,8 +283,6 @@ def archive_existing_sessions(record_id: str) -> int:
     return count
 
 def ensure_race_and_veille_in_last_week(
-    record_id: str,
-    semaine_dates: List[date],
     semaine_seances: List[Dict[str, Any]],
     date_course: date,
     mode: str,
@@ -275,38 +290,35 @@ def ensure_race_and_veille_in_last_week(
     objectif: Optional[str]
 ):
     """
-    Garantit:
-    - Une séance le jour de course (= RACE) → remplace séance du jour, sinon déplace la séance la plus proche.
-    - La veille J-1 (= VEILLE) → remplace la dernière séance avant J.
-    Conserve le nombre de séances.
+    Garantit en semaine de course:
+    - Une séance le jour J = RACE (remplacement du contenu par modèle 'RACE')
+    - Une séance la veille J-1 = VEILLE (remplacement du contenu par modèle 'VEILLE')
+    - Conserve le nombre de séances (déplace/remplace, pas d'ajout)
     """
-    # Indexer par date
+    if not semaine_seances:
+        return
+
+    # Index rapide par date
     by_date = { s["Date"]: s for s in semaine_seances }
 
-    # 1) RACE (J)
-    race_day = date_course
-    # Trouver un modèle "RACE"
+    # Charger modèles Phase=Course
     cands_course = filter_types("Course", mode, objectif, niveau)
-    race_cands = [c for c in cands_course if c.get("Clé séance") and "RACE" in str(c["Clé séance"]).upper()]
-    race_model = race_cands[0] if race_cands else None
+    race_model = next((c for c in cands_course if c.get("Clé séance") and "RACE" in str(c["Clé séance"]).upper()), None)
+    veille_model = next((c for c in cands_course if c.get("Clé séance") and "VEILLE" in str(c["Clé séance"]).upper()), None)
 
-    # S'il n'y a pas de séance à J → déplacer la séance la plus proche vers J
+    # --- RACE (Jour J) ---
+    race_day = date_course
     if race_day not in by_date:
-        # choisir la séance la plus proche en absolu
-        if semaine_seances:
-            semaine_seances.sort(key=lambda s: abs((s["Date"] - race_day).days))
-            moved = semaine_seances[0]
-            # libérer son ancienne date
-            old_date = moved["Date"]
-            by_date.pop(old_date, None)
-            # la déplacer au jour J
-            moved["Date"] = race_day
-            by_date[race_day] = moved
+        # Déplacer la séance la plus proche vers J
+        semaine_seances.sort(key=lambda s: abs((s["Date"] - race_day).days))
+        moved = semaine_seances[0]
+        old = moved["Date"]
+        moved["Date"] = race_day
+        by_date.pop(old, None)
+        by_date[race_day] = moved
 
-    # maintenant on a forcément une séance au jour J
     race_slot = by_date[race_day]
     if race_model:
-        # remplacer le contenu par le modèle RACE (conserve date / semaine / jour)
         race_slot.update({
             "Clé séance": race_model["Clé séance"],
             "Nom séance": race_model["Nom séance"] or "Séance",
@@ -315,20 +327,16 @@ def ensure_race_and_veille_in_last_week(
             "Type séance (court)": race_model.get("Type séance (court)"),
             "Message coach": race_model.get("Message coach"),
             "Message hebdo": race_model.get("Message hebdo"),
+            "Phase": "Course"
         })
 
-    # 2) VEILLE (J-1) → dernière séance avant J
+    # --- VEILLE (J-1) ---
     veille_day = race_day - timedelta(days=1)
-    # modèle VEILLE
-    veille_cands = [c for c in cands_course if c.get("Clé séance") and "VEILLE" in str(c["Clé séance"]).upper()]
-    veille_model = veille_cands[0] if veille_cands else None
-
-    # identifier toutes les séances < J et prendre la plus tardive
+    # dernière séance avant J
     pre = [s for s in semaine_seances if s["Date"] < race_day]
     pre.sort(key=lambda s: s["Date"], reverse=True)
     if pre:
-        veille_slot = pre[0]  # dernière avant J
-        # déplacer au besoin vers J-1
+        veille_slot = pre[0]
         veille_slot["Date"] = veille_day
         if veille_model:
             veille_slot.update({
@@ -339,15 +347,16 @@ def ensure_race_and_veille_in_last_week(
                 "Type séance (court)": veille_model.get("Type séance (court)"),
                 "Message coach": veille_model.get("Message coach"),
                 "Message hebdo": veille_model.get("Message hebdo"),
+                "Phase": "Course"
             })
-    # si pas de séance avant J (cas extrême) → on remplace la plus proche < J ou > J
     else:
+        # cas extrême: pas de séance avant J → prend la première et place à J-1
         all_sorted = sorted(semaine_seances, key=lambda s: s["Date"])
         if all_sorted:
-            candidate = all_sorted[0]
-            candidate["Date"] = veille_day
+            cand = all_sorted[0]
+            cand["Date"] = veille_day
             if veille_model:
-                candidate.update({
+                cand.update({
                     "Clé séance": veille_model["Clé séance"],
                     "Nom séance": veille_model["Nom séance"] or "Séance",
                     "Durée (min)": veille_model["Durée (min)"],
@@ -355,12 +364,13 @@ def ensure_race_and_veille_in_last_week(
                     "Type séance (court)": veille_model.get("Type séance (court)"),
                     "Message coach": veille_model.get("Message coach"),
                     "Message hebdo": veille_model.get("Message hebdo"),
+                    "Phase": "Course"
                 })
 
 def create_seance(fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     try:
         return TAB_SEANCES.create(fields)
-    except Exception as e:
+    except Exception:
         return None
 
 # -----------------------------------------------------------------------------
@@ -378,55 +388,69 @@ def generate_by_id():
     try:
         body = request.get_json(force=True, silent=True) or {}
         record_id = body.get("record_id")
-        nb_semaines = to_int(body.get("nb_semaines"), DEFAULT_WEEKS)
-        jours_par_semaine = to_int(body.get("jours_par_semaine"), DEFAULT_JOURS_SEMAINE)
+
+        # facultatifs (si non fournis -> calculs automatiques)
+        nb_semaines_input = body.get("nb_semaines")
+        jours_par_semaine_input = body.get("jours_par_semaine")
 
         if not record_id:
             return jsonify({"error": "record_id manquant"}), 400
 
         # Coureur
-        cour = TAB_COUR.get(record_id)
-        if not cour or "fields" not in cour:
+        coureur = TAB_COUR.get(record_id)
+        if not coureur or "fields" not in coureur:
             return jsonify({"error": "Coureur introuvable"}), 404
-        cf = cour["fields"]
+        cf = coureur["fields"]
 
-        # --- Normalisation du champ "Quota mensuel" (Lookup → nombre) ---
+        # Normaliser Quota mensuel (Lookup -> number)
         quota_raw = cf.get("Quota mensuel")
-
-        # Convert lookup list → number
-        if isinstance(quota_raw, list):
-            quota_mensuel = quota_raw[0] if quota_raw else None
-        else:
-            quota_mensuel = quota_raw
-
-        # Valeur par défaut si champ vide
-        if quota_mensuel is None or quota_mensuel == "":
-            quota_mensuel = 999
-
-        # Réinjection dans les données du coureur (pour que check_quota le lise correctement)
+        quota_mensuel = normalize_lookup_number(quota_raw, None)
+        if quota_mensuel is None:
+            quota_mensuel = 999  # pas de blocage si non défini
         cf["Quota mensuel"] = quota_mensuel
 
-        # --- Vérification du quota ---
-        ok, refusal = check_quota(cour)
+        # Vérification Quota
+        ok, refusal = check_quota(coureur)
         if not ok:
             log_event(record_id, "quota_refused", level="warning", payload=refusal)
             return jsonify(refusal), 429
 
-        # Inputs
+        # Inputs coureur
         mode = fget(cf, F_MODE, DEFAULT_MODE) or DEFAULT_MODE
         objectif = fget(cf, F_OBJECTIF, "10K")
         niveau = fget(cf, F_NIVEAU, "Reprise")
+        date_obj = normalize_date(fget(cf, F_DATE_COURSE))
+        if not date_obj:
+            # fallback: course dans 30 jours
+            date_obj = (datetime.utcnow() + timedelta(days=30)).date()
 
-        d_course_dt = parse_iso_date(fget(cf, F_DATE_COURSE))
-        if not d_course_dt:
-            # fallback neutre : course dans 30j (pour éviter crash, mais RG: normalement renseigné)
-            d_course_dt = (datetime.utcnow() + timedelta(days=30))
-        date_course = d_course_dt.date()
+        # nb semaines
+        if nb_semaines_input is not None:
+            nb_semaines = to_int(nb_semaines_input, DEFAULT_WEEKS)
+        else:
+            # Calcul automatique (RG: durée plan)
+            delta_days = max(0, (date_obj - date.today()).days)
+            nb_semaines = max(1, delta_days // 7)
+            if nb_semaines < 4:
+                nb_semaines = 4
+            if nb_semaines > 24:
+                nb_semaines = 24
 
-        # Paramètres phases (ordre)
+        # jours par semaine
+        if jours_par_semaine_input is not None:
+            jours_par_semaine = to_int(jours_par_semaine_input, DEFAULT_JOURS_SEMAINE)
+        else:
+            # Essai à partir des champs "Jours disponibles" si présent
+            jdispo = fget(cf, F_JOURS_DISPO)
+            if isinstance(jdispo, list):
+                jours_par_semaine = max(1, min(6, len(jdispo)))
+            else:
+                # fallback
+                jours_par_semaine = DEFAULT_JOURS_SEMAINE
+
+        # Phases
         phases = fetch_param_phases()
         if not phases:
-            # fallback neutre s'il n'y a rien
             phases = [
                 {"Nom phase": "Base1", "Ordre": 1, "Nb séances max / semaine": jours_par_semaine},
                 {"Nom phase": "Base2", "Ordre": 2, "Nb séances max / semaine": jours_par_semaine},
@@ -434,24 +458,26 @@ def generate_by_id():
                 {"Nom phase": "Course", "Ordre": 4, "Nb séances max / semaine": jours_par_semaine},
             ]
 
-        # ARCHIVE
+        # Archivage des séances existantes
         archives = archive_existing_sessions(record_id)
 
-        # Calendrier: on prend nb_semaines avant la date de course
-        start_date = (date_course - timedelta(weeks=nb_semaines))
-        # offsets par défaut (ven, dim)
+        # Construction calendrier
+        start_date = (date_obj - timedelta(weeks=nb_semaines))
         if jours_par_semaine <= 0:
             jours_par_semaine = DEFAULT_JOURS_SEMAINE
+        # offsets par défaut (mar/jeu/ven/dim selon besoin)
         if jours_par_semaine == 1:
-            offsets = [6]          # dimanche
+            offsets = [6]                  # Dim
         elif jours_par_semaine == 2:
-            offsets = [4, 6]       # vendredi, dimanche
+            offsets = [4, 6]               # Ven, Dim
         elif jours_par_semaine == 3:
-            offsets = [2, 4, 6]    # mercredi, vendredi, dimanche
+            offsets = [2, 4, 6]            # Mer, Ven, Dim
+        elif jours_par_semaine == 4:
+            offsets = [1, 3, 4, 6]         # Mar, Jeu, Ven, Dim
         else:
-            offsets = [1, 3, 4, 6][:jours_par_semaine]  # mar/jeu/ven/dim (tronqué)
+            offsets = [1, 2, 3, 4, 6][:jours_par_semaine]  # Mar, Mer, Jeu, Ven, Dim (tronqué)
 
-        # Répartition des phases sur nb_semaines (réparti égal sur toutes sauf "Course" qu'on force à 1)
+        # Timeline des phases: dernière semaine = Course
         phase_names = [p["Nom phase"] for p in phases]
         base_weeks = max(1, nb_semaines - 1)
         non_course = [p for p in phase_names if str(p).lower() != "course"]
@@ -463,40 +489,36 @@ def generate_by_id():
             if str(name).lower() == "course":
                 continue
             count = share
-            # ne pas dépasser base_weeks
             if cursor + count > base_weeks:
                 count = max(1, base_weeks - cursor)
             for _ in range(count):
                 phase_timeline.append(name)
             cursor += count
-        # force dernière semaine à Course
         while len(phase_timeline) < nb_semaines - 1:
             phase_timeline.append(non_course[-1] if non_course else "Base2")
         phase_timeline.append("Course")
         phase_timeline = phase_timeline[:nb_semaines]
 
-        # Génération "mémoire" (avant écriture Airtable)
         created = 0
         preview: List[Dict[str, Any]] = []
+        version_next = to_int(cf.get("Version plan"), 0) + 1
 
-        # Générer toutes les semaines
-        week_buckets: Dict[int, List[Dict[str, Any]]] = {}  # semaine idx -> séances (avant écriture)
+        # Génération en mémoire
+        week_buckets: Dict[int, List[Dict[str, Any]]] = {}
         for w in range(nb_semaines):
             week_buckets[w] = []
             monday = start_date + timedelta(weeks=w)
+            phase = phase_timeline[w]
+
             for j_index, off in enumerate(offsets[:jours_par_semaine]):
                 d = (monday + timedelta(days=off)).date()
-                phase = phase_timeline[w]
-
-                # Sélection standard
                 phase_for_pick = phase
                 if str(phase).lower() in ("prépa générale", "prepa generale", "base"):
-                    # alternance simple si tu utilises Base1/Base2
                     phase_for_pick = "Base1" if (w % 2 == 0) else "Base2"
 
                 cands = filter_types(phase_for_pick, mode, objectif, niveau)
                 st = pick_deterministic(cands, w, j_index)
-                # structure mémoire (sans envoi encore)
+
                 if st:
                     week_buckets[w].append({
                         "Date": d,
@@ -514,22 +536,18 @@ def generate_by_id():
                     log_event(record_id, "no_type_found", level="warning",
                               payload={"phase": phase_for_pick, "week": w+1, "date": str(d), "mode": mode, "objectif": objectif, "niveau": niveau})
 
-        # Ajustement semaine de course pour VEILLE & RACE
+        # Ajustement semaine Course: VEILLE (J-1) et RACE (J)
         last_w = nb_semaines - 1
         if week_buckets.get(last_w):
-            # garantir RACE/VEILLE
             ensure_race_and_veille_in_last_week(
-                record_id=record_id,
-                semaine_dates=[s["Date"] for s in week_buckets[last_w]],
                 semaine_seances=week_buckets[last_w],
-                date_course=date_course,
+                date_course=date_obj,
                 mode=mode,
                 niveau=niveau,
                 objectif=objectif
             )
 
         # Écriture Airtable
-        version_next = to_int(cf.get("Version plan"), 0) + 1
         for w in range(nb_semaines):
             for s in week_buckets[w]:
                 fields_new = {
@@ -547,14 +565,12 @@ def generate_by_id():
                     "Message hebdo": s.get("Message hebdo"),
                     "Version plan": version_next
                 }
-                created_rec = create_seance(fields_new)
-                if created_rec:
+                if create_seance(fields_new):
                     created += 1
-                    if len(preview) < 40:
-                        pr = fields_new.copy()
-                        preview.append(pr)
+                    if len(preview) < 50:
+                        preview.append(fields_new.copy())
 
-        # Incrément Version plan si création
+        # Incrément Version plan si création effective
         if created > 0:
             old_v = to_int(cf.get("Version plan"), 0)
             try:
@@ -573,14 +589,14 @@ def generate_by_id():
             "jours_par_semaine": jours_par_semaine,
             "version_plan": version_next,
             "total": created,
-            "archives": archives,
+            "archives": archive_existing_sessions.__name__,  # info: fonction utilisée (pas le nb)
             "preview": preview
         }), 200
 
     except Exception as e:
         rid = None
         try:
-            rid = (request.get_json() or {}).get("record_id")
+            rid = (request.get_json(silent=True) or {}).get("record_id")
         except Exception:
             pass
         log_event(rid or "unknown", "generation_failed", level="error",
@@ -589,5 +605,4 @@ def generate_by_id():
 
 
 if __name__ == "__main__":
-    # Port Render par défaut, debug activé pour trace locale
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "8000")), debug=True)
