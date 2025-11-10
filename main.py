@@ -75,6 +75,30 @@ TABLE_SEANCES               = get_table("TABLE_SEANCES"                 , "🏋�
 TABLE_ARCHIVES              = get_table("TABLE_ARCHIVES"                , "📦 Archives Séances", "Archives Séances", "Archives")
 TABLE_SEANCES_TYPES         = get_table("TABLE_SEANCES_TYPES"           , "📘 Séances types", "Séances types")
 TABLE_STRUCTURE             = get_table("TABLE_STRUCTURE"               , "📐 Structure Séances", "Structure Séances")
+
+# ---- Cache Séances types (source de vérité) ----
+def load_seances_types_map():
+    recs = TABLE_SEANCES_TYPES.all()
+    mapping = {}
+    for r in recs:
+        f = r.get('fields', {})
+        k = f.get('Clé séance')
+        if not k:
+            continue
+        mapping[k] = {
+            'Nom séance': f.get('Nom séance'),
+            'Type séance (court)': f.get('Type séance (court)'),
+            'Durée (min)': f.get('Durée (min)'),
+            'Charge': f.get('Charge'),
+            'Phase': f.get('Phase'),
+            'Mode': f.get('Mode'),
+            'Niveau': f.get('Niveau'),
+            'Objectif': f.get('Objectif'),
+            'Ordre': f.get('Ordre')
+        }
+    return mapping
+
+SEANCES_TYPES_MAP = load_seances_types_map()
 TABLE_MAILS                 = get_table("TABLE_MAILS"                   , "✉️ Mails", "Mails")  # Optionnel, non utilisé ici
 TABLE_MESSAGES_SMARTCOACH   = get_table("TABLE_MESSAGES_SMARTCOACH"     , "🗂️ Messages SmartCoach", "Messages SmartCoach")
 TABLE_VDOT_REF              = get_table("TABLE_VDOT_REF"                , "VDOT_References", "VDOT Reference", "VDOT")
@@ -508,6 +532,8 @@ def distance_from_objectif(obj: str) -> int:
 @app.route("/generate_by_id", methods=["POST"])
 def generate_by_id():
     data = request.get_json(silent=True) or {}
+    debug = bool(data.get('debug'))
+    debug_logs = []
     record_id = data.get("record_id")
     if not record_id:
         return jsonify(error="record_id manquant"), 400
@@ -559,12 +585,28 @@ def generate_by_id():
     TABLE_COUR.update(record_id, {"Version plan": nouvelle_version})
     nb_archives = archive_existing_for_runner(record_id, nouvelle_version)
 
-    # Structure séances
-    phase_lookup = "Prépa générale" if phase in ("Base1", "Base2") else phase
-    rows = TABLE_STRUCTURE.all(formula=f"{{Phase}} = '{phase_lookup}'")
+    # Structure séances — remplacé par sélection directe dans 📘 Séances types
+    filtre_parts = [
+        f"{{Mode}} = 'Running'",
+        f"{{Phase}} = '{phase_lookup}'",
+        f"{{Niveau}} = '{niveau}'",
+        f"{{Objectif}} = '{objectif}'",
+    ]
+    formula = 'AND(' + ','.join(filtre_parts) + ')'
+    rows = TABLE_SEANCES_TYPES.all(formula=formula)
     if not rows:
-        return jsonify(error="Aucune structure trouvée", phase=phase_lookup), 422
-    structure_rows = sorted(rows, key=lambda r: r.get("fields", {}).get("Ordre", 0))
+        return jsonify(error="Aucun modèle trouvé dans Séances types", phase=phase_lookup, niveau=niveau, objectif=objectif), 422
+    # On ordonne par 'Ordre' si présent, sinon par 'Clé séance'
+    structure_rows = sorted(
+        rows,
+        key=lambda r: (r.get('fields', {}).get('Ordre') is None, r.get('fields', {}).get('Ordre', 0), r.get('fields', {}).get('Clé séance', ''))
+    )
+    if debug:
+        debug_logs.append({
+            'phase_lookup': phase_lookup,
+            'nb_models': len(structure_rows),
+            'first_keys': [r.get('fields', {}).get('Clé séance') for r in structure_rows[:5]]
+        })
 
     # Génération slots
     slots = generate_dates(date_depart, nb_semaines, jours)
@@ -615,30 +657,7 @@ def generate_by_id():
         previews.append(payload)
         created += 1
 
-    # === ✅ Ajout VEILLE + JOUR J après la boucle ===
-    if date_obj:
-        veille = date_obj - timedelta(days=1)
-        jour_veille = WEEKDAYS_FR[veille.weekday()]
-        jour_course = WEEKDAYS_FR[date_obj.weekday()]
-        # VEILLE
-        payload_veille = {
-            "Coureur": [record_id],
-            "Nom séance": "📦 Veille de course — Activation légère",
-            "Type séance (court)": "VEILLE",
-            "Clé séance": "RACE_EVE",
-            "Phase": "Affûtage",
-            "Date": veille.isoformat(),
-            "Jour planifié": jour_veille,
-            "Version plan": nouvelle_version,
-            "Semaine": nb_semaines,
-            "Message coach": "15–20 min facile + 3 lignes droites très relâchées.",
-            "Message hebdo": "Demain c'est le jour. Tu es prêt."
-        }
-        TABLE_SEANCES.create(payload_veille)
-        previews.append(payload_veille)
-        created += 1
-
-        # JOUR DE COURSE
+            # JOUR DE COURSE
         dist_km = distance_from_objectif(objectif)
         payload_course = {
             "Coureur": [record_id],
@@ -697,6 +716,7 @@ def generate_by_id():
     return jsonify({
         "status": "ok",
         "message_id": "SC_COACH_021",
+        "debug": debug_logs if debug else None,
         "message": msg,
         "version_plan": nouvelle_version,
         "nb_semaines": nb_semaines,
