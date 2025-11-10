@@ -703,19 +703,20 @@ def generate_by_id():
         })
         created += 1
 
-    msg = fmsg = f"✅ Nouveau plan généré — **Version {nouvelle_version}**\n{created} séances créées."
-        return jsonify({
-            "status": "ok",
-            "message_id": "SC_COACH_021",
-            "debug": debug_logs if debug else None,
-            "message": msg,
-            "version_plan": nouvelle_version,
-            "nb_semaines": nb_semaines,
-            "jours_par_semaine": len(jours),
-            "archives": nb_archives,
-            "total": created,
-            "preview": previews
-        }), 200
+    msg = f"✅ Nouveau plan généré — **Version {nouvelle_version}**\n{created} séances créées."
+
+    return jsonify({
+        "status": "ok",
+        "message_id": "SC_COACH_021",
+        "debug": debug_logs if debug else None,
+        "message": msg,
+        "version_plan": nouvelle_version,
+        "nb_semaines": nb_semaines,
+        "jours_par_semaine": len(jours),
+        "archives": nb_archives,
+        "total": created,
+        "preview": previews
+    }), 200
 
 # -----------------------------------------------------------------------------
 # Debug version hash
