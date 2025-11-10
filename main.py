@@ -25,6 +25,14 @@ from typing import List, Dict, Any, Optional, Tuple
 from flask import Flask, request, jsonify
 from pyairtable import Table
 
+# --- Robust helper to flatten Airtable lookup values ---
+def as_scalar(v, default=None):
+    while isinstance(v, list):
+        v = v[0] if v else None
+    if isinstance(v, dict):
+        return v.get('name') or v.get('value') or default
+    return v if v not in (None, "") else default
+
 # -----------------------------------------------------------------------------
 # Utils ENV + Tables
 # -----------------------------------------------------------------------------
@@ -478,6 +486,21 @@ Le plus gros piège → partir trop vite.
 Viser **contrôle + relâchement** sur les 2 premiers kilomètres.
 """
 
+# --- Helper: distance from normalized objective ---
+def distance_from_objectif(obj: str) -> int:
+    if not obj:
+        return 10
+    key = obj.upper().replace(" ", "")
+    mapping = {
+        "5K": 5,
+        "10K": 10,
+        "SEMI": 21,
+        "SEMI-MARATHON": 21,
+        "MARATHON": 42,
+    }
+    return mapping.get(key, 10)
+
+
 # -----------------------------------------------------------------------------
 # Endpoint principal
 # -----------------------------------------------------------------------------
@@ -504,7 +527,7 @@ def generate_by_id():
 
     # Paramètres clefs
     niveau   = first_nonempty(cf, "Niveau", "🧭 Niveau", default="Reprise")
-    objectif = first_nonempty(cf, "Objectif", "🎯 Objectif", default="10K")
+    objectif = first_nonempty(cf, "Objectif_normalisé", "Objectif", "🎯 Objectif", default="10K")
     phase    = first_nonempty(cf, "Phase", "🏁 Phase", default="Prépa générale")
     vdot     = int_field(cf, "VDOT_cible", "VDOT", default=45)
     freq     = int_field(cf, "Fréquence", "Fréquence cible", "Fréquence_cible", default=2)
@@ -595,35 +618,46 @@ def generate_by_id():
     # === ✅ Ajout VEILLE + JOUR J après la boucle ===
     if date_obj:
         veille = date_obj - timedelta(days=1)
-
-        TABLE_SEANCES.create({
+        jour_veille = WEEKDAYS_FR[veille.weekday()]
+        jour_course = WEEKDAYS_FR[date_obj.weekday()]
+        # VEILLE
+        payload_veille = {
             "Coureur": [record_id],
-            "Nom séance": "📦 Veille de course — Relax + Réassurance",
+            "Nom séance": "📦 Veille de course — Activation légère",
             "Type séance (court)": "VEILLE",
-            "Clé séance": "VEILLE",
-            "Phase": "Compétition",
+            "Clé séance": "RACE_EVE",
+            "Phase": "Affûtage",
             "Date": veille.isoformat(),
-            "Jour planifié": veille.strftime("%A"),
+            "Jour planifié": jour_veille,
             "Version plan": nouvelle_version,
             "Semaine": nb_semaines,
-            "Message coach": "15–20 min facile + 3 lignes droites très relâchées."
-        })
+            "Message coach": "15–20 min facile + 3 lignes droites très relâchées.",
+            "Message hebdo": "Demain c'est le jour. Tu es prêt."
+        }
+        TABLE_SEANCES.create(payload_veille)
+        previews.append(payload_veille)
+        created += 1
 
-        TABLE_SEANCES.create({
+        # JOUR DE COURSE
+        dist_km = distance_from_objectif(objectif)
+        payload_course = {
             "Coureur": [record_id],
             "Nom séance": f"🏁 Jour de course — {objectif}",
             "Type séance (court)": "COURSE",
             "Clé séance": f"RACE_DAY_{objectif.upper()}",
-            "Phase": "Compétition",
+            "Phase": "Course",
             "Date": date_obj.isoformat(),
-            "Jour planifié": date_obj.strftime("%A"),
+            "Jour planifié": jour_course,
             "Version plan": nouvelle_version,
             "Semaine": nb_semaines,
-            "Message coach": build_race_strategy(vdot, 10),
+            "Message coach": build_race_strategy(vdot, dist_km),
             "Message hebdo": "Aujourd’hui tu t’exprimes. Tu as tout construit pour ça."
-        })
+        }
+        TABLE_SEANCES.create(payload_course)
+        previews.append(payload_course)
+        created += 1
 
-    msg = f"✅ Nouveau plan généré — **Version {nouvelle_version}**\n{created} séances créées."
+    msg = fmsg = f"✅ Nouveau plan généré — **Version {nouvelle_version}**\n{created} séances créées."
     return jsonify({
         "status": "ok",
         "message_id": "SC_COACH_021",
