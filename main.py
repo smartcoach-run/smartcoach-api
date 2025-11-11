@@ -680,7 +680,13 @@ def generate_by_id():
             return jsonify(payload_days), 400
             
         # ✅ Jours disponibles validés par B03-COH
-        jours_dispo = payload_days.get("jours_dispo", [])  # liste réelle utilisateur
+        jours_dispo = cf.get("📅 Jours disponibles") or cf.get("Jours disponibles") or []
+
+        # Normalisation : toujours une liste propre
+        if isinstance(jours_dispo, str):
+            jours_dispo = [j.strip() for j in jours_dispo.split(",")]
+
+        jours_dispo = [j for j in jours_dispo if j]  # nettoyage
 
         # Lookup référence jours selon Mode + Niveau + Objectif
         ref = lookup_reference_jours(cf)  # ⚠️ Si pas encore fait, je te mets la version prêt-à-coller si besoin
