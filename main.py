@@ -175,33 +175,41 @@ def normalize_lookup_number(v, default=None):
 
 DAY_ORDER = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
 
-def best_spacing(jours_disponibles, nb_jours, jours_recommandes):
-    # Ordre fixe (valeur de référence pour le calcul d'espacement)
-    ordre = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+def best_spacing(jours_dispo, nb_final, jours_proposes):
+    """
+    Calcule une répartition cohérente des jours de séances.
+    Règles : 
+    - Alignement prioritaire sur Jours_proposés
+    - Tolérance de 1 enchaînement max
+    """
 
-    # On transforme les jours en index pour mesurer les écarts
-    idx_dispo = [ordre.index(j) for j in jours_disponibles]
+    # 1) Normalisation (majuscules / accents identiques à Airtable)
+    jours_dispo = [j.strip() for j in jours_dispo]
+    jours_proposes = [j.strip() for j in jours_proposes]
 
-    # On génère toutes les combinaisons possibles
-    from itertools import combinations
-    combinaisons = list(combinations(idx_dispo, nb_jours))
+    # 2) Si déjà le bon nombre → on trie dans l’ordre recommandé
+    if len(jours_dispo) == nb_final:
+        return sorted(jours_dispo, key=lambda j: jours_proposes.index(j) if j in jours_proposes else 99)
 
-    def qualité(combo):
-        # Mesurer l'espacement : somme des écarts entre jours consécutifs
-        espacements = [combo[i+1] - combo[i] for i in range(len(combo)-1)]
-        score_espacement = sum(espacements)
+    # 3) Si trop de jours → on garde ceux alignés avec la référence
+    if len(jours_dispo) > nb_final:
+        tri = sorted(jours_dispo, key=lambda j: jours_proposes.index(j) if j in jours_proposes else 99)
+        return tri[:nb_final]
 
-        # Bonus si combo contient des jours recommandés
-        score_bonus = sum([1 for idx in combo if ordre[idx] in jours_recommandes])
+    # 4) Si pas assez de jours → on complète avec les meilleurs jours possibles
+    final = list(jours_dispo)
+    for j in jours_proposes:
+        if len(final) >= nb_final:
+            break
+        if j not in final:
+            final.append(j)
 
-        # Score final : espacement + bonus priorité référentiel
-        return (score_espacement, score_bonus)
+    # 5) Vérification enchaînement : max 1 consécutif
+    # (L’ordre logique des jours -> Lundi,...,Dimanche)
+    ordre = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
+    final_sorted = sorted(final, key=lambda j: ordre.index(j))
 
-    # On sélectionne la meilleure combinaison selon le score
-    best = max(combinaisons, key=qualité)
-
-    # Retourne les jours sous forme de texte
-    return [ordre[i] for i in best]
+    return final_sorted
 
 def normalize_phase(phase: str) -> str:
     if not phase:
@@ -292,6 +300,45 @@ def lookup_reference_jours(cf):
         "Nb_jours_min": fields.get("Nb_jours_min", 0),
         "Nb_jours_max": fields.get("Nb_jours_max", 0),
         "Jours_proposés": fields.get("Jours_proposés", []),
+    }
+
+def lookup_reference_jours(cf):
+    """
+    Retourne les paramètres Jours_min, Jours_max, Jours_proposés
+    depuis la table Airtable 'Référence Jours' en fonction du profil.
+    """
+    mode = cf.get("Mode", "").strip()
+    niveau = cf.get("Niveau", "").strip()
+    objectif = cf.get("Objectif", "").strip()
+
+    # Clé utilisée dans Airtable
+    key = f"{mode}-{niveau}-{objectif}"
+
+    # Nom EXACT de la table (à vérifier si emojis ou espaces diffèrent)
+    table_name = "Référence Jours"
+
+    # On recherche la ligne correspondant à la clé
+    rows = airtable_get_all(table_name, formula=f"{{Clé_niveau_reference}} = '{key}'")
+
+    # Pas trouvé → erreur contrôlée
+    if not rows:
+        return None
+
+    row = rows[0]["fields"]
+
+    # Extraction propre
+    jours_min = row.get("Nb_jours_min")
+    jours_max = row.get("Nb_jours_max")
+    jours_proposes = row.get("Jours_proposés", [])
+
+    # Normalisation (si multi-select, on obtient une liste de labels)
+    if isinstance(jours_proposes, str):
+        jours_proposes = [jours_proposes]
+
+    return {
+        "jours_min": int(jours_min) if jours_min is not None else None,
+        "jours_max": int(jours_max) if jours_max is not None else None,
+        "jours_proposés": jours_proposes
     }
 
 # -----------------------------------------------------------------------------
@@ -688,19 +735,20 @@ def generate_by_id():
 
         jours_dispo = [j for j in jours_dispo if j]  # nettoyage
 
-        # Lookup référence jours selon Mode + Niveau + Objectif
-        ref = lookup_reference_jours(cf)  # ⚠️ Si pas encore fait, je te mets la version prêt-à-coller si besoin
-            
+        # ✅ Lookup référence jours selon Mode + Niveau + Objectif
+        ref = lookup_reference_jours(cf)
+
         if not ref:
+            log_event(record_id, "reference_not_found", level="warning", payload={"clé_recherchée": f"{mode}-{niveau}-{objectif}"})
             return jsonify({
                 "error": "reference_not_found",
                 "message": "⛔ Profil non trouvé dans Référence Jours.",
                 "message_id": "SC_COACH_024"
             }), 400
-            
-        jours_min = ref["Nb_jours_min"]
-        jours_max = ref["Nb_jours_max"]
-        jours_proposes = ref["Jours_proposés"]
+
+        jours_min = ref["jours_min"]
+        jours_max = ref["jours_max"]
+        jours_proposes = ref["jours_proposés"]
 
         # Nombre final de jours à utiliser
         nb = clamp(len(jours_dispo), jours_min, jours_max)
@@ -796,11 +844,22 @@ def generate_by_id():
 
         # Inputs coureur usuels
         mode = fget(cf, F_MODE, DEFAULT_MODE) or DEFAULT_MODE
-        objectif = fget(cf, F_OBJECTIF, "10K")
-        niveau = fget(cf, F_NIVEAU, "Reprise")
-        date_course = normalize_date(fget(cf, F_DATE_COURSE))
 
-        # Nouveau : Type de plan (pour suivi usage)
+        # Normalisation Objectif (multi-select → string)
+        objectif_raw = fget(cf, F_OBJECTIF)
+        if isinstance(objectif_raw, list):
+            objectif = objectif_raw[0]
+        else:
+            objectif = objectif_raw
+
+        niveau = fget(cf, F_NIVEAU)
+
+        # Nettoyage sécurité
+        mode = str(mode).strip()
+        niveau = str(niveau).strip()
+        objectif = str(objectif).strip()
+
+        # Type de plan (pour suivi usage)
         type_plan = f"{mode} – {niveau} – {objectif}"
 
         # Loger l'information dans le suivi génération (table Suivi génération Airtable)
