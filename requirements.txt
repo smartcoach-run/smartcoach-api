@@ -3,3 +3,4 @@ pyairtable==2.3.7
 python-dotenv
 gunicorn
 python-dateutil
+requests
