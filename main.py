@@ -820,16 +820,19 @@ def generate_by_id():
                 "message_id": "SC_COACH_024"
             }
 
-        jours_min = ref.get("Nb_jours_min")
-        jours_max = ref.get("Nb_jours_max")
-        jours_proposes = ref.get("Jours_proposés") or []
+        # ✅ Champs attendus dans Référence Jours
+        jours_min = ref.get("Nb_jours_min", None)
+        jours_max = ref.get("Nb_jours_max", None)
+        jours_proposes = ref.get("Jours_proposés", []) or []
 
+        # ✅ Conversion en entier sécurisée
         try:
-            jours_min = int(jours_min) if jours_min else 0
-            jours_max = int(jours_max) if jours_max else 7
+            jours_min = int(jours_min) if jours_min is not None else 0
+            jours_max = int(jours_max) if jours_max is not None else 7
         except:
             jours_min = 0
             jours_max = 7
+
         
         groupe = cf.get("Groupe", [])
 
