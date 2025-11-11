@@ -18,6 +18,7 @@ Pipeline SCN_01 :
 import os
 import json
 import traceback
+DEBUG_SC = True  # ← active logs
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime, timedelta, date
 
@@ -108,7 +109,7 @@ T_MSGS      = os.environ.get("TABLE_MESSAGES_SMARTCOACH", "📩 Messages Hebdo")
 T_LOGS      = os.environ.get("TABLE_LOGS_SMARTCOACH", "🧱 Logs SmartCoach")
 T_GROUPES   = os.environ.get("TABLE_GROUPES", "👥 Groupes")
 T_ARCHIVES  = os.environ.get("TABLE_ARCHIVES", "Archives Séances")
-T_REF_JOURS = os.environ.get("TABLE_VDOT_REF", "⚖️ Référence Jours")
+T_REF_JOURS = os.environ.get("TABLE_REF_JOURS", "⚖️ Référence Jours")
 T_SUIVI     = os.environ.get("TABLE_SUIVI", "📋 Suivi génération")
 
 
@@ -489,7 +490,7 @@ def generate_by_id():
             log_event(record_id, "days_control_failed", level="warning", payload=payload_days)
             return jsonify(payload_days), 400
 
-        ref = lookup_reference_jours(cf,debug=debug)
+        ref = lookup_reference_jours(cf, debug=DEBUG_SC)
         if not ref:
             return jsonify({
                 "status": "error",
