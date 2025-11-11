@@ -811,6 +811,7 @@ def generate_by_id():
         # ✅ Lookup référence jours selon Mode + Niveau + Objectif
         cf = cour.get("fields", {})
         ref = lookup_reference_jours(cf)
+
         if not ref:
             return {
                 "status": "error",
@@ -819,16 +820,16 @@ def generate_by_id():
                 "message_id": "SC_COACH_024"
             }
 
-        if not ref:
-            return jsonify({
-                "error": "reference_not_found",
-                "message": "⛔ Profil non trouvé dans Référence Jours.",
-                "message_id": "SC_COACH_024"
-            }), 400
+        jours_min = ref.get("Nb_jours_min")
+        jours_max = ref.get("Nb_jours_max")
+        jours_proposes = ref.get("Jours_proposés") or []
 
-        jours_min = ref["jours_min"]
-        jours_max = ref["jours_max"]
-        jours_proposes = ref["jours_proposés"]
+        try:
+            jours_min = int(jours_min) if jours_min else 0
+            jours_max = int(jours_max) if jours_max else 7
+        except:
+            jours_min = 0
+            jours_max = 7
         
         groupe = cf.get("Groupe", [])
 
