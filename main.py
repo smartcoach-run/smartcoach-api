@@ -49,12 +49,16 @@ T_MSGS = "🗂️ Messages SmartCoach"      # optionnel
 T_LOGS = "🧱 Logs SmartCoach"          # optionnel
 T_GROUPES = "👥 Groupes"               # optionnel
 T_ARCHIVES = "Archives Séances"        # table d'archives (mouvement)
+T_REF_JOURS = "⚖️ Référence Jours"   
+T_SUIVI = "📋 Suivi génération"
 
 # Ouverture tables
 TAB_COUR    = api.table(BASE_ID, T_COUR)
 TAB_SEANCES = api.table(BASE_ID, T_SEANCES)
 TAB_TYPES   = api.table(BASE_ID, T_TYPES)
 TAB_PARAM   = api.table(BASE_ID, T_PARAM)
+TAB_REF_JOURS = api.table(BASE_ID, T_REF_JOURS)
+TAB_SUIVI = api.table(BASE_ID, T_SUIVI)
 
 try:
     TAB_MSGS = api.table(BASE_ID, T_MSGS)
@@ -109,6 +113,9 @@ def to_int(v, default=0) -> int:
         return int(float(v))
     except Exception:
         return default
+
+def clamp(val, lo, hi):
+    return max(lo, min(hi, val))
 
 
 def normalize_date(x) -> Optional[date]:
@@ -165,6 +172,127 @@ def normalize_lookup_number(v, default=None):
     if v in (None, ""):
         return default
     return to_int(v, default if default is not None else 0)
+
+DAY_ORDER = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
+
+def best_spacing(jours_disponibles, nb_jours, jours_recommandes):
+    # Ordre fixe (valeur de référence pour le calcul d'espacement)
+    ordre = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
+
+    # On transforme les jours en index pour mesurer les écarts
+    idx_dispo = [ordre.index(j) for j in jours_disponibles]
+
+    # On génère toutes les combinaisons possibles
+    from itertools import combinations
+    combinaisons = list(combinations(idx_dispo, nb_jours))
+
+    def qualité(combo):
+        # Mesurer l'espacement : somme des écarts entre jours consécutifs
+        espacements = [combo[i+1] - combo[i] for i in range(len(combo)-1)]
+        score_espacement = sum(espacements)
+
+        # Bonus si combo contient des jours recommandés
+        score_bonus = sum([1 for idx in combo if ordre[idx] in jours_recommandes])
+
+        # Score final : espacement + bonus priorité référentiel
+        return (score_espacement, score_bonus)
+
+    # On sélectionne la meilleure combinaison selon le score
+    best = max(combinaisons, key=qualité)
+
+    # Retourne les jours sous forme de texte
+    return [ordre[i] for i in best]
+
+def normalize_phase(phase: str) -> str:
+    if not phase:
+        return "base"
+
+    p = phase.lower()
+
+    if any(x in p for x in ["base", "fond"]):
+        return "base"
+
+    if any(x in p for x in ["pro", "dev", "spéc", "spec", "prépa", "progress"]):
+        return "developpement"
+
+    if "aff" in p:
+        return "affutage"
+
+    if "course" in p:
+        return "course"
+
+    return "base"  # fallback safe
+
+def build_weekly_message(phase: str, niveau: str, objectif: str, semaine: int, nb_semaines: int) -> str:
+    phase_type = normalize_phase(phase)
+
+    blocs = []
+
+    # Ton général par phase
+    if phase_type == "base":
+        blocs.append("On construit les bases tranquillement, sans forcer. Le but est d’installer des sensations stables.")
+    elif phase_type == "developpement":
+        blocs.append("On intensifie doucement mais sûrement. L’objectif est de progresser sans brûler les étapes.")
+    elif phase_type == "affutage":
+        blocs.append("On commence à alléger un peu la charge pour arriver frais le jour J. On écoute les sensations.")
+    elif phase_type == "course":
+        blocs.append("C’est la dernière ligne droite. On ne cherche plus à progresser, juste à être prêt et confiant.")
+
+    # Personnalisation selon objectif
+    if objectif:
+        blocs.append(f"Ton objectif **{objectif}** reste le fil directeur.")
+
+    # Personnalisation selon niveau
+    if niveau.lower() in ["débutant", "reprise"]:
+        blocs.append("Rappelle-toi : priorité à la respiration confortable. Si ça souffle trop → on ralentit.")
+    elif niveau.lower() in ["intermédiaire", "confirmé"]:
+        blocs.append("Tu peux te concentrer sur l’efficacité du geste : cadence fluide, relâchement des épaules.")
+
+    # Encouragement dynamique
+    progression = int((semaine / nb_semaines) * 100)
+    if progression < 30:
+        blocs.append("Tu es en train de construire quelque chose. Continue sans te précipiter. 💛")
+    elif progression < 70:
+        blocs.append("Tu es dans le cœur de la progression. Tu gères ça avec constance 👣")
+    else:
+        blocs.append("Tu as déjà fait le plus dur. Maintenant, on sécurise et on garde confiance ✨")
+
+    # Final
+    return "\n\n".join(blocs)
+
+def lookup_message_hebdo(phase: str, niveau: str, objectif: str) -> Optional[str]:
+    for rec in TAB_MESSAGES.values():
+        f = rec.get("fields", {})
+        if (
+            f.get("Phase") == phase
+            and f.get("Niveau") == niveau
+            and f.get("Objectif") == objectif
+        ):
+            return f.get("Message_Final", "")
+    return None
+
+# helpers_reference.py
+
+def lookup_reference_jours(cf):
+    """
+    Lookup table Référence Jours optimisée par clé_niveau_reference
+    Retourne : dict { Nb_jours_min, Nb_jours_max, Jours_proposés }
+    """
+
+    key = cf.get("Clé_niveau_reference")  # Ex: "Running-Intermédiaire-10K"
+    if not key:
+        return None
+
+    row = TAB_REF_JOURS.find("Clé_niveau_reference", key)
+    if not row:
+        return None
+
+    fields = row["fields"]
+    return {
+        "Nb_jours_min": fields.get("Nb_jours_min", 0),
+        "Nb_jours_max": fields.get("Nb_jours_max", 0),
+        "Jours_proposés": fields.get("Jours_proposés", []),
+    }
 
 # -----------------------------------------------------------------------------
 # SCN_01 — Étape 2 : Contrôle jours disponibles
@@ -235,57 +363,72 @@ def check_days_and_level(cf: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
             "nb_jours": nb
         }
 
-    return True, {"nb_jours": nb}
+    return True, {
+    "nb_jours": nb,
+    "jours_dispo": jdispo   # ← on ajoute la vraie liste de jours
+}
+
 
 # -----------------------------------------------------------------------------
 # SCN_01 — Étape 3 : Quota
 # -----------------------------------------------------------------------------
 
-def check_quota(cour: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
-    f = cour.get("fields", {})
-    version = to_int(f.get("Version plan"), 0)
+from datetime import datetime
 
-    # Quota côté Coureur (lookup possible)
-    quota = normalize_lookup_number(f.get("Quota mensuel"), None)
+def check_quota(coureur):
+    f = coureur.get("fields", {})
 
-    # Override via Groupe (si présent)
-    try:
-        if TAB_GROUPES and f.get("Groupe"):
-            gid = None
-            if isinstance(f["Groupe"], list) and f["Groupe"]:
-                gid = f["Groupe"][0]
-            if gid:
-                g = TAB_GROUPES.get(gid)
-                gf = g.get("fields", {})
-                qg = normalize_lookup_number(gf.get("Quota mensuel"), None)
-                if qg is not None and qg > 0:
-                    quota = qg
-                autorise = gf.get("Autoriser génération")
-                if isinstance(autorise, bool) and not autorise:
-                    return False, {
-                        "status": "error",
-                        "error": "quota_exceeded",
-                        "message_id": MESSAGE_ID_QUOTA,
-                        "message": "⛔️ Génération interdite par le groupe.",
-                        "version_plan": version,
-                        "quota_mensuel": quota if quota is not None else 0
-                    }
-    except Exception:
-        pass
+    # 1) Groupe du coureur
+    groupe_list = f.get("Groupe", [])
+    if not groupe_list:
+        return True, None  # Pas de groupe = pas de quota
 
-    if quota is None:
-        quota = 999
+    groupe_id = groupe_list[0]  # Airtable linked record ID
 
-    if version >= quota:
+    # 2) Lecture de la fiche Groupe
+    g = TAB_GROUPES.get(groupe_id)
+    if not g:
+        return True, None
+
+    gf = g.get("fields", {})
+    nom_groupe = gf.get("Nom du groupe", "?")
+    quota = gf.get("Quota mensuel", 999) or 999  # fallback safe
+    autorise = gf.get("Autoriser génération", True)
+
+    # Blocage dur si groupe interdit
+    if isinstance(autorise, bool) and not autorise:
         return False, {
             "status": "error",
             "error": "quota_exceeded",
-            "message_id": MESSAGE_ID_QUOTA,
-            "message": "⛔️ Quota mensuel atteint — génération refusée.",
-            "version_plan": version,
-            "quota_mensuel": quota
+            "message_id": "SC_COACH_031",
+            "message": f"⛔️ Génération interdite pour le groupe **{nom_groupe}**.",
+            "quota_mensuel": quota,
         }
-    return True, {}
+
+    # 3) Comptage du nombre de générations du groupe ce mois-ci
+    current_month = datetime.now().strftime("%Y-%m")
+    count = 0
+    for rec in TAB_SUIVI.values():
+        sf = rec.get("fields", {})
+        if groupe_id in (sf.get("Groupe") or []):
+            date_gen = sf.get("Date génération", "")
+            if current_month in date_gen:
+                if sf.get("Statut") == "success":
+                    count += 1
+
+    # 4) Comparaison au quota
+    if count >= quota:
+        return False, {
+            "status": "error",
+            "error": "quota_exceeded",
+            "message_id": "SC_COACH_031",
+            "message": f"🚫 Le quota mensuel du groupe **{nom_groupe}** est atteint ({quota}/{quota}).",
+            "groupe": nom_groupe,
+            "quota": quota,
+            "used": count
+        }
+
+    return True, None
 
 # -----------------------------------------------------------------------------
 # Phases & Types
@@ -353,6 +496,24 @@ def filter_types(phase: str, mode: str, objectif: Optional[str], niveau: Optiona
         })
     return out
 
+def pick_progressive_load(candidates, week, session_index):
+    """
+    Sélectionne une séance en progressivité :
+    - Semaine après semaine : charge croissante
+    - À volume égal : alternance de stimulus
+    """
+    # Tri par charge d'abord
+    sorted_cands = sorted(
+        candidates,
+        key=lambda c: (
+            c.get("Charge", 1),
+            c.get("Durée (min)", 0)
+        )
+    )
+
+    # Index basé sur semaine + position dans la semaine
+    pos = (week * 2 + session_index) % len(sorted_cands)
+    return sorted_cands[pos]
 
 def pick_deterministic(cands: List[Dict[str, Any]], week_index: int, index_in_week: int) -> Optional[Dict[str, Any]]:
     if not cands:
@@ -500,21 +661,94 @@ def generate_by_id():
         nb_semaines_input = body.get("nb_semaines")
         jours_par_semaine_input = body.get("jours_par_semaine")
 
-        # 1) Coureur
+# -----------------------------------------------------------------------------
+#                   1. CHARGER LE COUREUR
+# -----------------------------------------------------------------------------
         coureur = TAB_COUR.get(record_id)
         if not coureur or "fields" not in coureur:
             return jsonify({"error": "Coureur introuvable"}), 404
         cf = coureur["fields"]
 
-        # 2) Contrôle jours disponibles
+# -----------------------------------------------------------------------------
+#                   2. CALCUL & VALIDATION DES JOURS
+# -----------------------------------------------------------------------------
+        ctx = {}
+
         ok_days, payload_days = check_days_and_level(cf)
         if not ok_days:
             log_event(record_id, "days_control_failed", level="warning", payload=payload_days)
             return jsonify(payload_days), 400
+            
+        # ✅ Jours disponibles validés par B03-COH
+        jours_dispo = payload_days.get("jours_dispo", [])  # liste réelle utilisateur
+
+        # Lookup référence jours selon Mode + Niveau + Objectif
+        ref = lookup_reference_jours(cf)  # ⚠️ Si pas encore fait, je te mets la version prêt-à-coller si besoin
+            
+        if not ref:
+            return jsonify({
+                "error": "reference_not_found",
+                "message": "⛔ Profil non trouvé dans Référence Jours.",
+                "message_id": "SC_COACH_024"
+            }), 400
+            
+        jours_min = ref["Nb_jours_min"]
+        jours_max = ref["Nb_jours_max"]
+        jours_proposes = ref["Jours_proposés"]
+
+        # Nombre final de jours à utiliser
+        nb = clamp(len(jours_dispo), jours_min, jours_max)
+
+        if nb == 0:
+            return jsonify({
+                "error": "days_zero",
+                "message": "⛔️ Aucun jour disponible sélectionné.",
+                "message_id": "SC_COACH_023",
+                "nb_jours": 0,
+                "niveau": cf.get("Niveau"),
+                "status": "error"
+            }), 400
+
+# -----------------------------------------------------------------------------
+#                   2b. CONSTRUCTION COHERENTE DE JOURS_FINAL
+# -----------------------------------------------------------------------------
+        # Construction cohérente des jours du plan
+        jours_final = best_spacing(jours_dispo, nb, jours_proposes)
+
+        # Si la cohérence est insuffisante → fallback référence
+        if len(jours_final) < nb:
+            jours_final = best_spacing(jours_proposes, nb, jours_proposes)
+
+        # Ordre standardisé (lundi → dimanche)
+        jours_final = sorted(jours_final, key=DAY_ORDER.index)
+
+        # Stock pour la suite
+        ctx["jours_final"] = jours_final
+        log_event(record_id, "jours_final_ok", payload={"jours_final": jours_final})
+
+            
         # Nombre de jours retenu
         nb_jours_dispo = payload_days.get("nb_jours") or 1
+        
+# -----------------------------------------------------------------------------
+#                   3. CONTRÔLE DU GROUPE
+# -----------------------------------------------------------------------------
 
-        # 3) Quota
+        groupe = cf.get("Groupe", [])
+
+        if not groupe:
+            # 🆕 Nouveau coureur → on le place dans le groupe 'Autres'
+            default_group = TAB_GROUPES.find("Nom du groupe", "Autres")
+            if default_group:
+                TAB_COUR.update(record_id, {"Groupe": [default_group["id"]]})
+                log_event(record_id, "groupe_assigned", payload={"groupe": "Autres"})
+        else:
+            # ✅ Groupe déjà en place → ne rien modifier
+            log_event(record_id, "groupe_ok", payload={"groupe": groupe[0]["id"] if isinstance(groupe, list) else groupe})
+
+# -----------------------------------------------------------------------------
+#                   4. VERIFIER QUOTA
+# -----------------------------------------------------------------------------
         ok_quota, refusal = check_quota(coureur)
         if not ok_quota:
             log_event(record_id, "quota_refused", level="warning", payload=refusal)
@@ -526,7 +760,25 @@ def generate_by_id():
         niveau = fget(cf, F_NIVEAU, "Reprise")
         date_course = normalize_date(fget(cf, F_DATE_COURSE))
 
-        # 4) Calcul durée plan (priorité aux dates fournies)
+        # Nouveau : Type de plan (pour suivi usage)
+        type_plan = f"{mode} – {niveau} – {objectif}"
+
+        # Loger l'information dans le suivi génération (table Suivi génération Airtable)
+        log_event(
+            record_id,
+            "plan_type",
+            level="info",
+            payload={
+                "type_plan": type_plan,
+                "mode": mode,
+                "niveau": niveau,
+                "objectif": objectif
+            }
+        )
+
+# -----------------------------------------------------------------------------
+#                   5. CALCUL DUREE DU PLAN
+# -----------------------------------------------------------------------------
         if date_debut_plan and date_fin_plan and date_fin_plan >= date_debut_plan:
             delta = (date_fin_plan - date_debut_plan).days
             nb_semaines = max(1, delta // 7)
@@ -554,7 +806,9 @@ def generate_by_id():
         else:
             jours_par_semaine = max(1, min(6, nb_jours_dispo))
 
-        # 5) Archivage versionné
+# -----------------------------------------------------------------------------
+#                   6. ARCHIVER VERSION PRECEDENTE
+# -----------------------------------------------------------------------------
         current_version = to_int(cf.get("Version plan"), 0)
         try:
             archived = move_previous_version_to_archives(record_id, current_version)
@@ -568,7 +822,9 @@ def generate_by_id():
                 "message": f"⛔️ Archivage impossible: {str(e)}"
             }), 500
 
-        # 6) Phases & Grille déterministe
+# -----------------------------------------------------------------------------
+#                   7. CONSTRUIRE LA GRILLE S x JOURS_FINAL
+# -----------------------------------------------------------------------------
         phases = fetch_param_phases() or [
             {"Nom phase": "Base1", "Ordre": 1, "Nb séances max / semaine": jours_par_semaine},
             {"Nom phase": "Base2", "Ordre": 2, "Nb séances max / semaine": jours_par_semaine},
@@ -576,17 +832,14 @@ def generate_by_id():
             {"Nom phase": "Course", "Ordre": 4, "Nb séances max / semaine": jours_par_semaine},
         ]
 
-        # Offsets figés
-        if jours_par_semaine == 1:
-            offsets = [6]                  # Dim
-        elif jours_par_semaine == 2:
-            offsets = [4, 6]               # Ven, Dim
-        elif jours_par_semaine == 3:
-            offsets = [2, 4, 6]            # Mer, Ven, Dim
-        elif jours_par_semaine == 4:
-            offsets = [1, 3, 4, 6]         # Mar, Jeu, Ven, Dim
+        # Offsets dynamiques via Jours_final
+        DAY_ORDER = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
+        if ctx.get("jours_final"):
+            offsets = [DAY_ORDER.index(j) for j in ctx["jours_final"]]
         else:
-            offsets = [1, 2, 3, 4, 6][:jours_par_semaine]
+            # Fallback sécurité (ne doit pas arriver si SCN_01 bien appliqué)
+            offsets = [DAY_ORDER.index(j) for j in (cf.get("Jours_proposés") or ["Mercredi","Samedi"])]
+
 
         # Timeline des phases : dernière semaine = Course
         phase_names = [p["Nom phase"] for p in phases]
@@ -610,7 +863,9 @@ def generate_by_id():
         phase_timeline.append("Course")
         phase_timeline = phase_timeline[:nb_semaines]
 
-        # 7) Sélection + fallback
+# -----------------------------------------------------------------------------
+#                   8. SELECTION DES SEANCES TYPES
+# -----------------------------------------------------------------------------
         def candidates_with_fallback(phase_for_pick: str, niv: str) -> List[Dict[str, Any]]:
             cands = filter_types(phase_for_pick, mode, objectif, niv)
             if cands:
@@ -653,7 +908,7 @@ def generate_by_id():
                         "week": w + 1,
                         "date": d.isoformat()
                     }), 400
-                st = pick_deterministic(cands, w, j_index)
+                st = pick_progressive_load(cands, w, j_index)
                 week_buckets[w].append({
                     "Date": d,
                     "Semaine": w + 1,
@@ -663,9 +918,8 @@ def generate_by_id():
                     "Durée (min)": st.get("Durée (min)"),
                     "Charge": st.get("Charge"),
                     "Type séance (court)": st.get("Type séance (court)"),
-                    "Message coach": st.get("Message coach"),
-                    "Message hebdo": st.get("Message hebdo")
-                })
+                    "Message coach": st.get("Message_coach (modèle)")
+                })                
 
         # Semaine "Course"
         if date_course and week_buckets.get(nb_semaines - 1):
@@ -677,7 +931,9 @@ def generate_by_id():
                 objectif=objectif
             )
 
-        # 8) Écriture Airtable + rollback si échec partiel
+# -----------------------------------------------------------------------------
+#                   9. INSERTION + SÛRETE
+# -----------------------------------------------------------------------------
         try:
             for w in range(nb_semaines):
                 for s in week_buckets[w]:
@@ -723,6 +979,14 @@ def generate_by_id():
                 log_event(record_id, "version_plan_incremented", payload={"to": version_next})
             except Exception as e:
                 log_event(record_id, "version_plan_increment_failed", level="error", payload={"error": str(e)})
+
+        TAB_SUIVI.create({
+            "Coureur": [record_id],
+            "Groupe": cf.get("Groupe"),
+            "Date génération": datetime.now().isoformat(),
+            "Statut": "success",
+            "Type plan": mode,
+        })
 
         msg = f"✅ Nouveau plan généré — **Version {version_next}**\n{created} séances créées."
         return jsonify({
