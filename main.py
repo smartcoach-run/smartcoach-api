@@ -27,7 +27,8 @@ from datetime import datetime, timedelta, date
 
 from flask import Flask, request, jsonify
 from pyairtable import Api
-from helpers.airtable import airtable_get_all, airtable_get_one
+from airtable import airtable_get_all, airtable_get_one
+from reference_jours import lookup_reference_jours
 
 # -----------------------------------------------------------------------------
 # CONFIG
@@ -737,10 +738,8 @@ def generate_by_id():
         jours_dispo = [j for j in jours_dispo if j]  # nettoyage
 
         # ✅ Lookup référence jours selon Mode + Niveau + Objectif
-        ref = lookup_reference_jours(cf)
-
+        ref = lookup_reference_jours(mode, niveau, objectif)
         if not ref:
-            log_event(record_id, "reference_not_found", level="warning", payload={"clé_recherchée": f"{mode}-{niveau}-{objectif}"})
             return jsonify({
                 "error": "reference_not_found",
                 "message": "⛔ Profil non trouvé dans Référence Jours.",
