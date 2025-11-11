@@ -489,7 +489,7 @@ def generate_by_id():
             log_event(record_id, "days_control_failed", level="warning", payload=payload_days)
             return jsonify(payload_days), 400
 
-        ref = lookup_reference_jours(cf)
+        ref = lookup_reference_jours(cf,debug=debug)
         if not ref:
             return jsonify({
                 "status": "error",
