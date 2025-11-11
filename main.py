@@ -19,12 +19,15 @@ Décisions figées :
 - Dernière semaine = Phase "Course" avec VEILLE (J-1) et RACE (Jour J)
 """
 
+import os
 import json
-import datetime
-from flask import jsonify
+import traceback
+from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, timedelta, date
 
+from flask import Flask, request, jsonify
+from pyairtable import Api
 from helpers.airtable import airtable_get_all, airtable_get_one
-from helpers.utils import clamp, normalize_date
 
 # -----------------------------------------------------------------------------
 # CONFIG
