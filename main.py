@@ -737,19 +737,6 @@ def generate_by_id():
 
         jours_dispo = [j for j in jours_dispo if j]  # nettoyage
 
-        # ✅ Lookup référence jours selon Mode + Niveau + Objectif
-        ref = lookup_reference_jours(mode, niveau, objectif)
-        if not ref:
-            return jsonify({
-                "error": "reference_not_found",
-                "message": "⛔ Profil non trouvé dans Référence Jours.",
-                "message_id": "SC_COACH_024"
-            }), 400
-
-        jours_min = ref["jours_min"]
-        jours_max = ref["jours_max"]
-        jours_proposes = ref["jours_proposés"]
-
         # Nombre final de jours à utiliser
         nb = clamp(len(jours_dispo), jours_min, jours_max)
 
@@ -821,7 +808,28 @@ def generate_by_id():
 # -----------------------------------------------------------------------------
 #                   3. CONTRÔLE DU GROUPE
 # -----------------------------------------------------------------------------
+        # ✅ Lookup référence jours selon Mode + Niveau + Objectif
+        cf = cour.get("fields", {})
+        ref = lookup_reference_jours(cf)
+        if not ref:
+            return {
+                "status": "error",
+                "error": "reference_not_found",
+                "message": "⛔ Profil non trouvé dans Référence Jours.",
+                "message_id": "SC_COACH_024"
+            }
 
+        if not ref:
+            return jsonify({
+                "error": "reference_not_found",
+                "message": "⛔ Profil non trouvé dans Référence Jours.",
+                "message_id": "SC_COACH_024"
+            }), 400
+
+        jours_min = ref["jours_min"]
+        jours_max = ref["jours_max"]
+        jours_proposes = ref["jours_proposés"]
+        
         groupe = cf.get("Groupe", [])
 
         if not groupe:
