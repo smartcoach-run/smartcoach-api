@@ -100,16 +100,17 @@ if not AIRTABLE_KEY or not BASE_ID:
 api = Api(AIRTABLE_KEY)
 
 # Noms de tables
-T_COUR = "👤 Coureurs"
-T_SEANCES = "🏋️ Séances"
-T_TYPES = "📘 Séances types"
-T_PARAM = "⚙️ Paramètres phases"
-T_MSGS = "📩 Messages Hebdo"           # aligné avec ta base
-T_LOGS = "🧱 Logs SmartCoach"          # optionnel
-T_GROUPES = "👥 Groupes"               # optionnel
-T_ARCHIVES = "Archives Séances"        # optionnel
-T_REF_JOURS = "⚖️ Référence Jours"
-T_SUIVI = "📋 Suivi génération"
+T_COUR      = os.environ.get("TABLE_COUR", "👤 Coureurs")
+T_SEANCES   = os.environ.get("TABLE_SEANCES", "🏋️ Séances")
+T_TYPES     = os.environ.get("TABLE_SEANCES_TYPES", "📘 Séances types")
+T_PARAM     = os.environ.get("TABLE_PARAMETRES_PHASES", "⚙️ Paramètres phases")
+T_MSGS      = os.environ.get("TABLE_MESSAGES_SMARTCOACH", "📩 Messages Hebdo")
+T_LOGS      = os.environ.get("TABLE_LOGS_SMARTCOACH", "🧱 Logs SmartCoach")
+T_GROUPES   = os.environ.get("TABLE_GROUPES", "👥 Groupes")
+T_ARCHIVES  = os.environ.get("TABLE_ARCHIVES", "Archives Séances")
+T_REF_JOURS = os.environ.get("TABLE_VDOT_REF", "⚖️ Référence Jours")
+T_SUIVI     = os.environ.get("TABLE_SUIVI", "📋 Suivi génération")
+
 
 # Ouverture tables
 TAB_COUR    = api.table(BASE_ID, T_COUR)
