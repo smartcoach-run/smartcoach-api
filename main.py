@@ -718,23 +718,57 @@ def generate_by_id():
 # -----------------------------------------------------------------------------
 #                   2b. CONSTRUCTION COHERENTE DE JOURS_FINAL
 # -----------------------------------------------------------------------------
-        # Construction cohérente des jours du plan
-        jours_final = best_spacing(jours_dispo, nb, jours_proposes)
 
-        # Si la cohérence est insuffisante → fallback référence
+        def normalize(day):
+            # Sécurise l'écriture (ex : "Dimanche" vs "dimanche")
+            return day.strip().capitalize()
+
+        # Normalisation données utilisateur
+        jours_dispo = [normalize(d) for d in jours_dispo]
+
+        # Normalisation référence
+        jours_proposes = [normalize(d) for d in jours_proposes]
+
+        # 1) Déterminer nb de séances final
+        nb = clamp(len(jours_dispo), jours_min, jours_max)
+
+        # 2) Si trop de jours → tri selon l'ordre dans jours_proposés
+        if len(jours_dispo) > nb:
+            jours_final = [j for j in jours_proposes if j in jours_dispo][:nb]
+        else:
+            # 3) Sinon on prend tous les jours saisis
+            jours_final = list(jours_dispo)
+
+        # 4) Si pas assez de jours → compléter avec la séquence idéale
         if len(jours_final) < nb:
-            jours_final = best_spacing(jours_proposes, nb, jours_proposes)
+            for j in jours_proposes:
+                if j not in jours_final:
+                    jours_final.append(j)
+                if len(jours_final) == nb:
+                    break
 
-        # Ordre standardisé (lundi → dimanche)
-        jours_final = sorted(jours_final, key=DAY_ORDER.index)
+        # 5) Règle : jamais plus de 2 séances consécutives
+        # (ex traitement Dimanche → Lundi inclus)
+        jours_semaine = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"]
 
-        # Stock pour la suite
+        def distance(a, b):
+            return (jours_semaine.index(b) - jours_semaine.index(a)) % 7
+
+        for i in range(len(jours_final)):
+            # si 3 jours d'affilée → on remplace le central par repos / EF
+            prev = jours_final[i-1]
+            curr = jours_final[i]
+            nxt = jours_final[(i+1) % len(jours_final)]
+            if distance(prev, curr) == 1 and distance(curr, nxt) == 1:
+                # on remplace par un jour proposé suivant qui n'est pas consécutif
+                for candidate in jours_proposes:
+                    if candidate not in jours_final:
+                        jours_final[i] = candidate
+                        break
+
+        # jours_final est maintenant prêt :
         ctx["jours_final"] = jours_final
-        log_event(record_id, "jours_final_ok", payload={"jours_final": jours_final})
 
-            
-        # Nombre de jours retenu
-        nb_jours_dispo = payload_days.get("nb_jours") or 1
         
 # -----------------------------------------------------------------------------
 #                   3. CONTRÔLE DU GROUPE
