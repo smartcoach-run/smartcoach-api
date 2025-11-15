@@ -74,6 +74,29 @@ class AirtableService:
             raise Exception(f"Erreur GET {table}/{record_id} : {response.text}")
         return response.json()
 
+    def list_records(self, table_name, filter_formula=None, max_records=50):
+        """
+        Liste les enregistrements d'une table avec filtre optionnel.
+        """
+        url = f"{self.base_url}/{table_name}"
+        params = {"pageSize": max_records}
+        if filter_formula:
+            params["filterByFormula"] = filter_formula
+
+        response = requests.get(url, headers=self.headers, params=params)
+
+        if not response.ok:
+            raise Exception(f"Erreur LIST {table_name}: {response.status_code} – {response.text}")
+
+        return response.json().get("records", [])
+
+    def search_records(self, table_name, field_name, value):
+        """
+        Recherche les enregistrements où un champ == valeur.
+        """
+        filter_formula = f"{{{field_name}}} = '{value}'"
+        return self.list_records(table_name, filter_formula=filter_formula)
+
     def update_record(self, table: str, record_id: str, fields: dict):
         url = f"https://api.airtable.com/v0/{self.base_id}/{table}/{record_id}"
         payload = {"fields": fields}

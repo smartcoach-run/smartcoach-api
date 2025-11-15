@@ -1,60 +1,77 @@
-"""
-dispatcher.py
----------------------------------------------------------------------
-Responsabilité :
-Choisir quel scénario exécuter en fonction des données du contexte.
-
-Ici, pour SmartCoach MVP :
-- Uniquement SCN_1
-- Architecture pensée pour être extensible (SCN_2, SCN_3… plus tard)
-
-Conforme :
-- RCTC (aucun champ ajouté)
-- Story (1 scénario : génération plan)
-- Manuel SmartCoach
----------------------------------------------------------------------
-"""
-
-from smartcoach_scenarios.scn_1 import scenario_1
-
+# smartcoach_scenarios/dispatcher.py
+from smartcoach_services.log_service import log_event
 
 def dispatch_scenario(ctx):
-    """
-    Router central :
-    - ctx contient le record_id, les fields, l’instance Airtable, etc.
-    - Le scénario à exécuter est déterminé ici.
-    - Pour l’instant : uniquement SCN_1 (le scénario de génération)
-    """
+    record_id = ctx.get("record_id")
+    scenario_id = ctx.get("scenario_id")
+    airtable = ctx.get("airtable")
 
     try:
-        # Debug mode affiché si demandé
-        if ctx.get("debug"):
-            print("[DISPATCHER] Contexte reçu :", ctx.keys())
-
-        # ----------------------------------------------------------
-        # Sélection du scénario
-        # ----------------------------------------------------------
-        # Aujourd’hui : aucun choix → toujours SCN_1
-        # (sera extensible facilement si plusieurs scénarios arrivent)
-        scenario_fn = scenario_1
-
-        # ----------------------------------------------------------
         # Exécution
-        # ----------------------------------------------------------
-        result = scenario_fn(ctx)
+        if scenario_id == "SCN_1":
+            from smartcoach_scenarios.scn_1 import scenario_1
+            result = scenario_1(ctx)
+        else:
+            raise ValueError(f"Scénario inconnu : {scenario_id}")
 
-        # Le résultat doit toujours être un dictionnaire
-        if not isinstance(result, dict):
-            return {
-                "error": "Le scénario n’a pas retourné de dictionnaire.",
-                "scenario": "SCN_1"
-            }
+        # LOG OK
+        log_event(
+            airtable=airtable,
+            record_id=record_id,
+            statut="OK",
+            message=f"Scénario {scenario_id} exécuté avec succès",
+            environnement="DEV"
+        )
 
         return result
 
     except Exception as e:
-        print("[CRITICAL] Erreur dans dispatcher :", e)
-        return {
-            "error": "Erreur critique dans le dispatcher",
-            "details": str(e)
-        }
+        # LOG ERROR
+        log_event(
+            airtable=airtable,
+            record_id=record_id,
+            statut="ERROR",
+            message=f"Erreur scénario {scenario_id} : {e}",
+            environnement="DEV"
+        )
+
+        raise
+
+    record_id = ctx.get("record_id")
+    scenario_id = ctx.get("scenario_id")
+    debug = ctx.get("debug", False)
+    fields = ctx.get("fields", {})
+    airtable = ctx.get("airtable")
+
+    # 1. Log : Démarrage
+    try:
+        log_event(
+            airtable=airtable,
+            record_id=record_id,
+            statut="START",
+            message=f"Début scénario {scenario_id}",
+            environnement="DEV"
+        )
+    except Exception as e:
+        print("[DISPATCHER] Log START impossible :", e)
+
+    # 2. Sélection du scénario
+    if scenario_id == "SCN_1":
+        from smartcoach_scenarios.scn_1 import scenario_1
+        result = scenario_1(ctx)
+    else:
+        raise ValueError(f"Scénario inconnu : {scenario_id}")
+
+    # 3. Log : Succès
+    try:
+        log_event(
+            airtable=airtable,
+            record_id=record_id,
+            statut="OK",
+            message=f"Scénario {scenario_id} exécuté avec succès",
+            environnement="DEV"
+        )
+    except Exception as e:
+        print("[DISPATCHER] Log OK impossible :", e)
+
+    return result
