@@ -25,6 +25,7 @@ Les champs utilisés correspondent à la table Logs d’Airtable :
 """
 
 from smartcoach_services.airtable_service import AirtableService
+from datetime import datetime
 
 # Options de debug / environnement
 try:
