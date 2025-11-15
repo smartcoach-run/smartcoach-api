@@ -1,27 +1,108 @@
+# main.py — SmartCoach Engine API
+# Version propre & alignée SCN_1 V1
+
 import os
-from dotenv import load_dotenv
-from smartcoach_core.dispatcher import run_scenario
-from smartcoach_services.log_service import SmartCoachLogger
+from flask import Flask, request, jsonify
+from smartcoach_services.airtable_service import AirtableService
+#from smartcoach_scenarios.dispatcher import run_scenario
+from smartcoach_scenarios.dispatcher import dispatch_scenario
+from smartcoach_services.log_service import LogService
+from smartcoach_core.config import SMARTCOACH_DEBUG
 
-load_dotenv()
-logger = SmartCoachLogger()
 
-if __name__ == "__main__":
+app = Flask(__name__)
+
+# --------------------------------------------------------------------
+# Initialisation Airtable
+# --------------------------------------------------------------------
+from smartcoach_core.config import get_airtable_credentials
+AIRTABLE_API_KEY, AIRTABLE_BASE_ID = get_airtable_credentials()
+
+
+airtable = AirtableService(api_key=AIRTABLE_API_KEY, base_id=AIRTABLE_BASE_ID)
+if SMARTCOACH_DEBUG:
+    print("🔗 AirtableService initialisé.")
+
+# --------------------------------------------------------------------
+# Endpoint principal : génération par record Airtable
+# --------------------------------------------------------------------
+@app.route("/generate_by_id", methods=["POST"])
+def generate_by_id():
+
+    req = request.json or {}
+    record_id = req.get("record_id")
+    debug = req.get("debug", False)
+
+    if SMARTCOACH_DEBUG:
+        print(f"[API] Reçu → record_id={record_id}, debug={debug}")
+
+    if not record_id:
+        return jsonify({"error": "record_id manquant"}), 400
+
+    # --------------------------------------------------
+    # 🔍 Charger le coureur depuis Airtable
+    # --------------------------------------------------
     try:
-        record_id = os.getenv("RECORD_ID")
-
-        if not record_id:
-            raise ValueError("RECORD_ID manquant dans .env")
-
-        logger.log_event("INFO", f"[MAIN] Début génération pour record {record_id}")
-
-        result = run_scenario(record_id)
-
-        logger.log_event("INFO", f"[MAIN] Génération OK pour record {record_id}")
-
-        print("✔ Plan généré avec succès")
-        print(result)
-
+        coureur = airtable.get_coureur(record_id)
     except Exception as e:
-        logger.log_event("ERREUR", f"[MAIN] Exception : {e}")
-        print("❌ ERREUR :", e)
+        print(f"[CRITICAL] Impossible de charger le coureur : {e}")
+        return jsonify({"error": "Record introuvable"}), 404
+
+    # --------------------------------------------------
+    # Construire contexte minimal SCN_1
+    # --------------------------------------------------
+    ctx = {
+        "record_id": record_id,
+        "coureur": coureur,
+        "airtable": airtable,
+        "debug": debug,
+        "scenario_id": "SCN_1",
+    }
+
+    if SMARTCOACH_DEBUG:
+        print("🧱 Contexte initial SCN_1 prêt.")
+    
+    # --------------------------------------------------
+    # 🧠 Dispatcher → appel du scénario SCN_1
+    # --------------------------------------------------
+    try:
+        result = dispatch_scenario(ctx)
+    except Exception as e:
+        print(f"[CRITICAL] Erreur durant l'exécution du scénario : {e}")
+        log_event(airtable, record_id, "SCN_1", "ERROR", str(e))
+        return jsonify({"error": "Erreur interne scénario"}), 500
+
+    # --------------------------------------------------
+    # ✏️ Log OK
+    # --------------------------------------------------
+    try:
+        log_event(airtable, record_id, "SCN_1", "SUCCESS", "Génération OK")
+    except Exception as e:
+        print(f"[WARNING] Impossible d'écrire le log : {e}")
+
+    # --------------------------------------------------
+    # Réponse finale API
+    # --------------------------------------------------
+    return jsonify({
+        "status": "OK",
+        "record_id": record_id,
+        "debug_info": result if debug else None
+    })
+
+
+# --------------------------------------------------------------------
+# Lancement API
+# --------------------------------------------------------------------
+if __name__ == "__main__":
+    from datetime import datetime
+    
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    print("\n" + "="*70)
+    print("🚀 SmartCoach Engine prêt à performer !")
+    print(f"⏱  Lancement effectué le : {now}")
+    print("🔥  Let's build something amazing. Go coach the world.")
+    print("🌍  API disponible sur : http://127.0.0.1:8000")
+    print("="*70 + "\n")
+    
+    app.run(host="127.0.0.1", port=8000, debug=True, use_reloader=False)

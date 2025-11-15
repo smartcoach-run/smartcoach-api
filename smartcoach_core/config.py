@@ -36,6 +36,31 @@ def _get_env(name: str, default=None, required: bool = False):
         raise RuntimeError(f"[CONFIG] Variable d'environnement manquante : {name}")
     return value
 
+# ------------------------------------------------------------
+# Airtable : sélection dynamique selon l'environnement
+# ------------------------------------------------------------
+
+def get_airtable_credentials():
+    """
+    Retourne (api_key, base_id) selon l'environnement SmartCoach.
+    """
+    
+    if is_dev():
+        api_key = _get_env("AIRTABLE_API_KEY_DEV", required=True)
+        base_id = _get_env("AIRTABLE_BASE_ID_DEV", required=True)
+
+    elif is_test():
+        api_key = _get_env("AIRTABLE_API_KEY_TEST", required=True)
+        base_id = _get_env("AIRTABLE_BASE_ID_TEST", required=True)
+
+    elif is_prod():
+        api_key = _get_env("AIRTABLE_API_KEY_PROD", required=True)
+        base_id = _get_env("AIRTABLE_BASE_ID_PROD", required=True)
+
+    else:
+        raise RuntimeError(f"[CONFIG] Environnement inconnu : {SMARTCOACH_ENV}")
+
+    return api_key, base_id
 
 # ---------------------------------------------------------
 # Airtable : clés & base selon l'environnement
