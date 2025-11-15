@@ -4,11 +4,10 @@
 import os
 from flask import Flask, request, jsonify
 from smartcoach_services.airtable_service import AirtableService
-#from smartcoach_scenarios.dispatcher import run_scenario
 from smartcoach_scenarios.dispatcher import dispatch_scenario
-from smartcoach_services.log_service import LogService
+from smartcoach_services.log_service import log_generation
 from smartcoach_core.config import SMARTCOACH_DEBUG
-
+from smartcoach_core.airtable_refs import ATABLES
 
 app = Flask(__name__)
 
@@ -43,7 +42,7 @@ def generate_by_id():
     # 🔍 Charger le coureur depuis Airtable
     # --------------------------------------------------
     try:
-        coureur = airtable.get_coureur(record_id)
+        coureur = airtable.get_record(ATABLES.COUREURS, record_id)
     except Exception as e:
         print(f"[CRITICAL] Impossible de charger le coureur : {e}")
         return jsonify({"error": "Record introuvable"}), 404
@@ -69,14 +68,26 @@ def generate_by_id():
         result = dispatch_scenario(ctx)
     except Exception as e:
         print(f"[CRITICAL] Erreur durant l'exécution du scénario : {e}")
-        log_event(airtable, record_id, "SCN_1", "ERROR", str(e))
+        log_generation(
+            airtable=airtable,
+            record_id=record_id,
+            scenario="SCN_1",
+            status="START",
+            message="Démarrage scénario 1",
+        )
         return jsonify({"error": "Erreur interne scénario"}), 500
 
     # --------------------------------------------------
     # ✏️ Log OK
     # --------------------------------------------------
     try:
-        log_event(airtable, record_id, "SCN_1", "SUCCESS", "Génération OK")
+        log_generation(
+            airtable,
+            record_id,
+            "SCN_1",
+            "OK",
+            "Contexte chargé",
+        )
     except Exception as e:
         print(f"[WARNING] Impossible d'écrire le log : {e}")
 

@@ -25,6 +25,24 @@ import requests
 
 class AirtableService:
 
+    def search(self, table_name: str, formula: str):
+        """
+        Recherche des records via filterByFormula.
+        Retourne une liste de records Airtable.
+        """
+        from urllib.parse import quote
+
+        encoded_formula = quote(formula)
+        url = f"https://api.airtable.com/v0/{self.base_id}/{table_name}?filterByFormula={encoded_formula}"
+
+        response = requests.get(url, headers=self.headers)
+        if response.status_code != 200:
+            raise Exception(
+                f"Erreur SEARCH {table_name} : {response.status_code} – {response.text}"
+            )
+
+        return response.json().get("records", [])
+
     def __init__(self, api_key: str, base_id: str):
         """
         Initialise la connexion Airtable.

@@ -19,7 +19,6 @@ tant que les règles complètes de génération ne sont pas stabilisées.
 from typing import Dict, Any, List
 from smartcoach_core.config import SMARTCOACH_DEBUG
 
-
 # --------------------------------------------------------------------
 # Utils internes
 # --------------------------------------------------------------------
