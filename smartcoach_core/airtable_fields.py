@@ -76,14 +76,12 @@ class ATFIELDS:
     SG_LOG_ID = "Nom du log / Record ID"
 
     SG_DATE_GENERATION = "Date de génération"
-
-    SG_COUREUR_LINK = "Coureur (lien)"  # Lien vers table Coureurs
-
+    
     SG_TYPE_SCENARIO = "Type de scénario"
     SG_SOURCE = "Source"
     SG_STATUT_EXECUTION = "Statut exécution"
     SG_MESSAGE_STATUT = "Message de statut"
-    SG_ERREUR_CODE = "Erreur_code"
+    SG_ERREUR_CODE = "Erreur_Code"
     SG_DUREE_EXECUTION = "Durée exécution (s)"
     SG_DEBUG_ACTIF = "Debug actif ?"
     SG_VERSION_SCRIPT = "Version script"

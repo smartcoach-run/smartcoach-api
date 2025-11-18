@@ -1,87 +1,158 @@
-# main.py — SmartCoach Engine API
-# Version propre & alignée SCN_1 V1
+# main.py
+# SmartCoach – Entrée API principale
+# Version : v2025-11-18-base
 
-import os
 from flask import Flask, request, jsonify
-
-from smartcoach_services.airtable_service import AirtableService
-from smartcoach_scenarios.dispatcher import dispatch_scenario
-from smartcoach_core.config import SMARTCOACH_DEBUG, get_airtable_credentials
-from smartcoach_core.airtable_refs import ATABLES
-from smartcoach_services.log_service import log_event
+from smartcoach_core.context import SmartCoachContext
+from datetime import datetime
+import traceback
 
 app = Flask(__name__)
 
-# --------------------------------------------------------------------
-# Initialisation Airtable
-# --------------------------------------------------------------------
-AIRTABLE_API_KEY, AIRTABLE_BASE_ID = get_airtable_credentials()
+# -------------------------------------------------------------------
+# 1. Helpers génériques
+# -------------------------------------------------------------------
 
-airtable = AirtableService(api_key=AIRTABLE_API_KEY, base_id=AIRTABLE_BASE_ID)
-if SMARTCOACH_DEBUG:
-    print("🔗 AirtableService initialisé.")
+def json_error(message, code="ERROR_TECH", http=200, context=None):
+    """Format standard des erreurs SmartCoach."""
+    return jsonify({
+        "ok": False,
+        "status_code": code,
+        "record_id": None,
+        "scenario_id": None,
+        "score_scenario": None,
+        "messages": [],
+        "errors": [{
+            "code": code,
+            "message": message,
+            "context": context or {}
+        }],
+        "meta": {
+            "duration_ms": 0,
+            "version_script": "v2025-11-18",
+            "env": "dev",
+            "safe_mode": False
+        }
+    }), http
 
 
-# --------------------------------------------------------------------
-# Endpoint principal : génération par record Airtable
-# --------------------------------------------------------------------
+def validate_request(payload):
+    """Validation minimale en attendant le validateur JSON Schema."""
+    if not payload:
+        return False, "Payload JSON manquant"
+
+    if "record_id" not in payload:
+        return False, "record_id manquant"
+
+    return True, None
+
+
+# -------------------------------------------------------------------
+# 2. Endpoint principal Make → SmartCoach
+# -------------------------------------------------------------------
+
 @app.route("/generate_by_id", methods=["POST"])
 def generate_by_id():
+    start = datetime.now()
 
-    req = request.json or {}
-    record_id = req.get("record_id")
-    debug = req.get("debug", False)
-
-    if SMARTCOACH_DEBUG:
-        print(f"[API] Reçu → record_id={record_id}, debug={debug}")
-
-    if not record_id:
-        return jsonify({"error": "record_id manquant"}), 400
-
-    # 1) Charger le coureur complet depuis Airtable
     try:
-        coureur = airtable.get_record(ATABLES.COUREURS, record_id)
-        fields = coureur.get("fields", {}) if isinstance(coureur, dict) else {}
-        if SMARTCOACH_DEBUG:
-            print("[MAIN] Champs coureur disponibles :", list(fields.keys()))
-    except Exception as e:
-        print(f"[CRITICAL] Impossible de charger le coureur : {e}")
-        return jsonify({"error": "Record introuvable"}), 404
+        payload = request.get_json(force=True)
 
-    # 2) Construire le contexte pour le dispatcher
-    ctx = {
-        "record_id": record_id,
-        "coureur": coureur,
-        "fields": fields,
-        "airtable": airtable,
-        "debug": debug,
-        "scenario_id": "SCN_1",
+        # 2.1 Validation rapide
+        ok, err = validate_request(payload)
+        if not ok:
+            return json_error(err, code="ERROR_PAYLOAD")
+
+        record_id = payload["record_id"]
+        debug = payload.get("debug", False)
+        source = payload.get("source", "make")
+        env = payload.get("env", "dev")
+
+        # 2.2 Construction du contexte minimal
+        context = SmartCoachContext(
+            record_id=record_id,
+            debug=debug,
+            source=source,
+            env=env
+        )
+
+        # 2.3 Appel du moteur SCN-1 (V1 : squelette)
+        try:
+            result = run_smartcoach_engine(context)
+
+        except Exception as e:
+            return json_error(
+                "Erreur interne moteur SmartCoach",
+                context={"exception": str(e)}
+            )
+
+        # 2.4 Réponse standard
+        duration = (datetime.now() - start).total_seconds() * 1000
+
+        result["meta"]["duration_ms"] = duration
+        return jsonify(result)
+
+    except Exception as e:
+        return json_error(
+            "Erreur interne API",
+            context={"exception": str(e), "trace": traceback.format_exc()}
+        )
+
+
+# -------------------------------------------------------------------
+# 3. Squelette du moteur (sera rempli ensuite)
+# -------------------------------------------------------------------
+
+def run_smartcoach_engine(context: SmartCoachContext):
+    """
+    Pipeline SmartCoach version squelette.
+    """
+
+    # Plus tard :
+    # context.fetch_raw = airtable_service.fetch(...)
+    # context.normalized = normalization_service.run(...)
+    # context.scenario_id, context.score_scenario = dispatcher.run(...)
+
+def run_smartcoach_engine(context):
+    return {
+        "ok": True,
+        "status_code": "OK",
+        "record_id": context.record_id,
+        "scenario_id": None,
+        "score_scenario": None,
+        "messages": context.messages,   # <— recommandé
+        "errors": context.errors,       # <— recommandé
+        "meta": {
+            "version_script": "v2025-11-18",
+            "env": context.env,         # <— correction critique
+            "safe_mode": False,
+            "duration_ms": None
+        }
     }
 
-    # 3) Dispatch scénario
-    result = dispatch_scenario(ctx)
-
-    # 4) Réponse finale API
-    return jsonify({
-        "status": "OK",
-        "record_id": record_id,
-        "debug_info": result if debug else None,
-    })
-
-
-# --------------------------------------------------------------------
-# Lancement API
-# --------------------------------------------------------------------
+# -------------------------------------------------------------------
+# 4. Lancement local
+# -------------------------------------------------------------------
 if __name__ == "__main__":
     from datetime import datetime
+    import os
+
+    ENV = os.getenv("SMARTCOACH_ENV", "DEV").upper()
+    HOT_RELOAD = (ENV == "DEV")
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     print("\n" + "=" * 70)
-    print("🚀 SmartCoach Engine prêt à performer !")
-    print(f"⏱  Lancement effectué le : {now}")
-    print("🔥  Let's build something amazing. Go coach the world.")
-    print("🌍  API disponible sur : http://127.0.0.1:8000")
+    print("🚀 SmartCoach Engine – Server starting...")
+    print(f"⏱  Start time      : {now}")
+    print(f"🌍  Environment    : {ENV}")
+    print(f"🔄  Hot Reload     : {'ON' if HOT_RELOAD else 'OFF'}")
+    print("📡  API available  : http://127.0.0.1:8000")
     print("=" * 70 + "\n")
 
-    app.run(host="127.0.0.1", port=8000, debug=True, use_reloader=False)
+    app.run(
+        host="127.0.0.1",
+        port=8000,
+        debug=HOT_RELOAD,
+        use_reloader=HOT_RELOAD
+    )
