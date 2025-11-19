@@ -1,11 +1,13 @@
 # main.py
 # SmartCoach – Entrée API principale
-# Version : v2025-11-18-base
+# Version : v2025-11-18-baseline-SCCTX
 
 from flask import Flask, request, jsonify
-from smartcoach_core.context import SmartCoachContext
 from datetime import datetime
 import traceback
+
+from smartcoach_core.context import SmartCoachContext
+from smartcoach_scenarios.dispatcher import dispatch_scenario
 
 app = Flask(__name__)
 
@@ -76,18 +78,22 @@ def generate_by_id():
             env=env
         )
 
-        # 2.3 Appel du moteur SCN-1 (V1 : squelette)
+        # 2.3 Appel du moteur SmartCoach
         try:
             result = run_smartcoach_engine(context)
 
         except Exception as e:
             return json_error(
                 "Erreur interne moteur SmartCoach",
-                context={"exception": str(e)}
+                context={"exception": str(e), "type": type(e).__name__}
             )
 
         # 2.4 Réponse standard
         duration = (datetime.now() - start).total_seconds() * 1000
+
+        # On s'assure que meta existe
+        if "meta" not in result:
+            result["meta"] = {}
 
         result["meta"]["duration_ms"] = duration
         return jsonify(result)
@@ -100,41 +106,47 @@ def generate_by_id():
 
 
 # -------------------------------------------------------------------
-# 3. Squelette du moteur (sera rempli ensuite)
+# 3. Moteur SmartCoach (pipeline haut niveau)
 # -------------------------------------------------------------------
 
 def run_smartcoach_engine(context: SmartCoachContext):
     """
-    Pipeline SmartCoach version squelette.
+    Pipeline SmartCoach version baseline.
+
+    Étapes prévues (future) :
+      - Fetch Airtable → context.fetch_raw
+      - Normalisation → context.normalized
+      - Scoring / choix scénario → context.scenario_id / score_scenario
+      - Règles RG-xx
+      - Génération Plan + Séances + ICS
+      - Logs
     """
 
-    # Plus tard :
-    # context.fetch_raw = airtable_service.fetch(...)
-    # context.normalized = normalization_service.run(...)
-    # context.scenario_id, context.score_scenario = dispatcher.run(...)
+    # 3.1 Dispatcher → exécute le scénario (SCN-1 pour l'instant)
+    context = dispatch_scenario(context)
 
-def run_smartcoach_engine(context):
+    # 3.2 Construction de la réponse API standard
     return {
-        "ok": True,
-        "status_code": "OK",
+        "ok": len(context.errors) == 0,
+        "status_code": "OK" if not context.errors else "ERROR_BUSINESS",
         "record_id": context.record_id,
-        "scenario_id": None,
-        "score_scenario": None,
-        "messages": context.messages,   # <— recommandé
-        "errors": context.errors,       # <— recommandé
+        "scenario_id": context.scenario_id,
+        "score_scenario": context.score_scenario,
+        "messages": context.messages,
+        "errors": context.errors,
         "meta": {
             "version_script": "v2025-11-18",
-            "env": context.env,         # <— correction critique
+            "env": context.env,
             "safe_mode": False,
             "duration_ms": None
         }
     }
 
+
 # -------------------------------------------------------------------
 # 4. Lancement local
 # -------------------------------------------------------------------
 if __name__ == "__main__":
-    from datetime import datetime
     import os
 
     ENV = os.getenv("SMARTCOACH_ENV", "DEV").upper()

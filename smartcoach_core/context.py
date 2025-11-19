@@ -51,3 +51,4 @@ class SmartCoachContext:
             "messages": self.messages,
             "errors": self.errors,
         }
+    
