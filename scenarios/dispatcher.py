@@ -1,35 +1,24 @@
-from core.internal_result import InternalResult
-from core.context import SmartCoachContext
-from core.utils.logger import log_info, log_error
+# scenarios/dispatcher.py
 
-from scenarios.scn_1 import run_scn_1
+from core.context import SmartCoachContext
+from core.internal_result import InternalResult
+from core.utils.logger import log_info, log_warning, log_error
+from scenarios.scn_0 import run_scn_0
+from scenarios.scn_0b import run_scn_0b
 
 
 def run_scenario(name: str, context: SmartCoachContext) -> InternalResult:
-    """
-    Router central du moteur SmartCoach.
-    Ajoute ici les futurs scénarios (SCN_2, SCN_ICS, SCN_FEEDBACK…)
-    """
+    """Router central du moteur SmartCoach."""
 
-    log_info(f"Dispatcher → scénario demandé : {name}")
+    log_info(f"Scénario demandé : {name}", module="Dispatcher")
 
-    # -------------------------------------------
-    # SCN_1
-    # -------------------------------------------
-    if name == "SCN_1":
-        log_info("Dispatcher → exécution SCN_1")
-        return run_scn_1(context)
+    if name == "SCN_0":
+        log_info("Exécution SCN_0", module="Dispatcher")
+        return run_scn_0(context)
 
-    # -------------------------------------------
-    # FUTURS SCÉNARIOS (SCN_2, ICS, FEEDBACK…)
-    # -------------------------------------------
-    # Exemple :
-    # if name == "SCN_2":
-    #     log_info("Dispatcher → exécution SCN_2")
-    #     return run_scn_2(context)
+    if name == "SCN_0b":
+        log_info("Exécution SCN_0b", module="Dispatcher")
+        return run_scn_0b(context)
 
-    # -------------------------------------------
-    # Erreur si scénario inconnu
-    # -------------------------------------------
-    log_error(f"Dispatcher → scénario inconnu : {name}")
+    log_error(f"Scénario inconnu : {name}", module="Dispatcher")
     raise ValueError(f"Scénario inconnu : {name}")
