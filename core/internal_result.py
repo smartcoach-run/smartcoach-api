@@ -1,38 +1,27 @@
-from dataclasses import dataclass, field
-from typing import Any, Dict, List
+# core/internal_result.py
 
-
-@dataclass
 class InternalResult:
     """
-    Structure standardisée de retour du moteur SmartCoach.
+    Format standard interne utilisé par les scénarios SmartCoach.
     """
-    status: str
-    messages: List[str] = field(default_factory=list)
-    data: Dict[str, Any] = field(default_factory=dict)
 
-    # --------------------------------------------------------------
-    # Méthodes utilitaires
-    # --------------------------------------------------------------
+    def __init__(self,
+                 status: str = "ok",
+                 messages=None,
+                 data=None,
+                 debug: bool = False,
+                 source: str = "engine"):
+        self.status = status
+        self.messages = messages or []
+        self.data = data or {}
+        self.debug = debug
+        self.source = source
 
-    @classmethod
-    def ok(cls, messages=None, data=None):
-        return cls(
-            status="ok",
-            messages=messages or ["OK"],
-            data=data or {}
-        )
-
-    @classmethod
-    def error(cls, messages=None, data=None):
-        return cls(
-            status="error",
-            messages=messages or ["Erreur"],
-            data=data or {}
-        )
-
-    def add_message(self, message: str):
-        self.messages.append(message)
-
-    def merge_data(self, new_data: Dict[str, Any]):
-        self.data.update(new_data)
+    def to_dict(self):
+        return {
+            "status": self.status,
+            "messages": self.messages,
+            "data": self.data,
+            "debug": self.debug,
+            "source": self.source,
+        }

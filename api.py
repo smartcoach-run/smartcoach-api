@@ -1,6 +1,7 @@
 # api.py
 
 import os
+from core.config import *
 from fastapi import FastAPI
 from pydantic import BaseModel
 
