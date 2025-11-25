@@ -6,7 +6,7 @@ import datetime
 import os
 
 from services.airtable_service import AirtableService
-from core.airtable_refs import ATREFS
+from services.airtable_fields import ATFIELDS
 from core.context import SmartCoachContext
 from core.internal_result import InternalResult
 from core.utils.logger import log_info

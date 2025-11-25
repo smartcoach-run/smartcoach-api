@@ -1,11 +1,28 @@
 # services/airtable_tables.py
+# =====================================================
+# Référentiel CENTRALISÉ des noms de tables Airtable
+# Source unique de vérité pour tout SmartCoach
+# =====================================================
 
-# 👟 Données principales
 class ATABLES:
+# 🔢 Référentiels    
+    # 🏃‍♂️ Coureurs
     COU_TABLE = "tblQy4XAFGgL3QPsk"
-    REF_JOURS = "Référence Jours"
-    VDOT = "VDOT_reference"
-    TYPES = "📘 Séances Types"
-    SEANCES = "🏋️ Séances"
-    SUIVI = "Suivi génération"
-    MSGS = "Messages Hebdo"
+    #⚖️ Référence Jours
+    REF_JOURS = "tblQYHeWm8zPM7uv3"
+    #📐 VDOT_reference
+    VDOT = "tblLAXCVcywD67lbZ"
+    #📘 Séances types
+    TYPES = "tbl1QZB7EDvxZ9EEt"
+    #🏋️Séances
+    SEANCES = "tblvFnCRyJVcMitI9"
+    # 🛣️ Mapping Phase (Running)
+    MAPPING_PHASES = "tblkO4XfXLd6xe9gY"    
+
+# 💬 Communication & Contenu
+    #📋 Suivi génération
+    SUIVI = "tblZX0WddUYaIeBC9"
+
+# 📬 Automatisations & Messages    
+    #📩 Messages Hebdo
+    MSGS = "tblRiRRtz3HlYJThZ"

@@ -326,6 +326,19 @@ class ATFIELDS:
     SVAL_STATUT = "Statut"
     SVAL_LIEN_COUREUR = "Lien coureur (démo)"
 
+    # =================================================
+    # 🛣️ TABLE : Mapping Phase
+    # =================================================
+    # Running
+    MP_DISTANCE = "Distance"
+    MP_PHASE_CLE = "Phase (clé)"
+    MP_ORDRE_PHASE = "Ordre phase"
+    MP_SEM_DEBUT = "Semaine début"
+    MP_SEM_FIN = "Semaine fin"
+    MP_PCT_DEBUT = "Pct_debut"
+    MP_PCT_FIN = "Pct_fin"
+
+
     # ⚠️ Comme toujours : ne pas redéclarer ENVIRONNEMENT ici.
 
 # =====================================================
