@@ -16,9 +16,7 @@ from services.airtable_service import AirtableService
 from services.airtable_fields import ATFIELDS
 
 from scenarios.validators import validate_running_step2
-from scenarios.selectors import build_step3_running
-from scenarios.builders import build_step4_running
-
+from scenarios.selectors import build_step3_running, build_step4_running, apply_phases_to_weeks
 
 def run_scn_1(context: SmartCoachContext) -> InternalResult:
 
@@ -58,12 +56,43 @@ def run_scn_1(context: SmartCoachContext) -> InternalResult:
     # ---------------------------------------------------------
     # Étape 3 : sélection des jours & phases
     # ---------------------------------------------------------
-    step3_data = build_step3_running(record, step2_data)
+    step3_data = build_step3_running(record, step2.data)
 
     # ---------------------------------------------------------
     # Étape 4 : squelette hebdomadaire Running
     # ---------------------------------------------------------
-    step4_data = build_step4_running(step3_data)
+    distance = step3_data["plan_distance"]
+    nb_semaines = step3_data["plan_nb_semaines"]
+    jours_retenus = step3_data["jours_retenus"]
+
+    step4_payload = build_step4_running(
+        distance=distance,
+        nb_semaines=nb_semaines,
+        jours_retenus=jours_retenus
+    )
+
+    # ---------------------------------------------------------
+    # STEP 5 : affectation des phases + progression
+    # ---------------------------------------------------------
+    from scenarios.selectors import apply_phases_and_progression
+
+    step5_weeks = apply_phases_and_progression(
+        step4_payload["weeks"],
+        step3_data["phases"]
+    )
+    # --------------------------------------------------------------
+    # STEP5 : log de vérification du tri canonique des jours
+    # --------------------------------------------------------------
+    for i, week in enumerate(step5_weeks):
+        ordered_days = [slot["jour"] for slot in week["slots"]]
+        log_info(
+            f"STEP5 → slots triés semaine {i+1} : {ordered_days}",
+            module="SCN_1"
+        )
+
+    # On remplace les weeks de step4 par les weeks enrichies step5
+    step4_payload["weeks"] = step5_weeks
+
 
     # ---------------------------------------------------------
     # RÉSULTAT FINAL
@@ -82,7 +111,8 @@ def run_scn_1(context: SmartCoachContext) -> InternalResult:
             },
             "step2": step2.to_dict(),
             "step3": step3_data,
-            "step4": step4_data
+            "step4": step4_payload   # squelette + jours
         },
         source="api"
     )
+   

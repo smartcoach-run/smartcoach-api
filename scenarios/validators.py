@@ -424,10 +424,8 @@ def build_step3_running(record: Dict[str, Any], step2_data: Dict[str, Any]) -> D
     objectif = step2_data.get("objectif")
     phases = _compute_phases_for_objectif(objectif)
 
-    # On calcule le nombre total de semaines à partir des phases
-    total_weeks = 0
-    for ph in phases:
-        total_weeks += ph.get("semaine_fin", 0) - ph.get("semaine_debut", 0) + 1
+    # Nombre total de semaines = somme des semaines de chaque phase
+    total_weeks = sum(ph.get("semaines", 0) for ph in phases)
 
     # -------------------------------
     # LOG
