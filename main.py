@@ -3,7 +3,7 @@
 
 import argparse
 from core.context import SmartCoachContext
-from scenarios.dispatcher import run_scenario
+from scenarios.dispatcher import dispatch_scenario
 
 
 def parse_arguments():
@@ -25,7 +25,7 @@ def main():
     context = SmartCoachContext(record_id=args.record)
 
     # 2. Exécuter le scénario
-    result = run_scenario(args.scn, context)
+    result = dispatch_scenario(args.scn, context)
 
     # 3. Afficher résultat
     print("\n=== SmartCoach - Résultat ===")

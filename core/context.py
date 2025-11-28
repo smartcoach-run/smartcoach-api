@@ -1,42 +1,47 @@
-from dataclasses import dataclass, field
-from typing import Any, Dict
+from pydantic import BaseModel, Field
+from typing import Any, Dict, Optional
 
 
-@dataclass
-class SmartCoachContext:
+class SmartCoachContext(BaseModel):
     """
-    Contexte d'exécution utilisé par tous les scénarios.
+    Contexte unique échangé entre le Dispatcher, les SCN fonctionnels
+    et les scénarios SOCLE (SCN_0x).
+
+    Aucune logique métier ici.
+    Simple conteneur de données.
     """
-    record_id: str
-    debug: bool = False
-    env: str = "dev"
-    source: str = "cli"   # cli, api, make, test…
-    metadata: Dict[str, Any] = field(default_factory=dict)
 
-    # --------------------------------------------------------------
-    # Utilitaires
-    # --------------------------------------------------------------
+    # --- Identité technique -------------------------
+    scenario: str = Field(default="", description="Nom du scénario demandé")
+    record_id: str = Field(default="", description="ID Airtable du record")
 
-    def to_dict(self) -> Dict[str, Any]:
-        """
-        Représentation simple pour logs ou réponses JSON.
-        """
-        return {
-            "record_id": self.record_id,
-            "debug": self.debug,
-            "env": self.env,
-            "source": self.source,
-            "metadata": self.metadata,
-        }
+    # --- Données brutes Fillout / Airtable ----------
+    record_raw: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Record Airtable brut (avant SCN_0a)"
+    )
 
-    def add_meta(self, key: str, value: Any):
-        """
-        Ajouter une donnée interne au contexte.
-        """
-        self.metadata[key] = value
+    # --- Données normalisées (remplies par SCN_0a) ---
+    record_norm: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Record normalisé (sortie SCN_0a)"
+    )
 
-    def log_header(self) -> str:
+    # --- Résultats intermédiaires SOCLE -------------
+    jours_result: Optional[Dict[str, Any]] = None       # sortie SCN_0b
+    vdot_result: Optional[Dict[str, Any]] = None        # sortie SCN_0c
+    structure_raw: Optional[Dict[str, Any]] = None      # sortie SCN_0d
+    structure_phased: Optional[Dict[str, Any]] = None   # sortie SCN_0e
+    final_json: Optional[Dict[str, Any]] = None         # sortie SCN_0f
+
+    # --- MÉTHODE ESSENTIELLE POUR LE PIPELINE ------
+    def update(self, data: Dict[str, Any]):
         """
-        Entête standardisée pour le logging.
+        Met à jour dynamiquement le contexte avec les clés/valeurs fournies.
         """
-        return f"[CTX] record={self.record_id} source={self.source} env={self.env} debug={self.debug}"
+        for key, value in data.items():
+            setattr(self, key, value)
+
+    class Config:
+        arbitrary_types_allowed = True
+        extra = "allow"

@@ -13,7 +13,7 @@ class ATABLES:
     #📐 VDOT_reference
     VDOT = "tblLAXCVcywD67lbZ"
     #📘 Séances types
-    TYPES = "tbl1QZB7EDvxZ9EEt"
+    SEANCES_TYPES = "tbl1QZB7EDvxZ9EEt"
     #🏋️Séances
     SEANCES = "tblvFnCRyJVcMitI9"
     # 🛣️ Mapping Phase (Running)

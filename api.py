@@ -9,11 +9,11 @@ from pydantic import BaseModel
 os.environ["SMARTCOACH_NO_COLOR"] = "1"
 
 from core.context import SmartCoachContext
-from scenarios.dispatcher import run_scenario
 from core.utils.logger import log_info, log_error
 from utils.server_banner import print_startup_banner
+from scenarios.dispatcher import dispatch_scenario
 
-app = FastAPI(title="SmartCoach Engine")
+app = FastAPI()
 
 
 class GenerateRequest(BaseModel):
@@ -38,8 +38,7 @@ def generate_by_id(payload: GenerateRequest):
     log_info(f"API → Requête reçue ({payload.scenario})", module="API")
 
     try:
-        context = SmartCoachContext(record_id=payload.record_id)
-        result = run_scenario(payload.scenario, context)
+        result = dispatch_scenario(payload.scenario, payload.record_id)
 
         return {
             "status": result.status,

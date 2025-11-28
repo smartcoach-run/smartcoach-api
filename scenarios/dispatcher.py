@@ -1,23 +1,50 @@
 # scenarios/dispatcher.py
 
 from core.context import SmartCoachContext
-from core.internal_result import InternalResult
-from core.utils.logger import log_info, log_warning, log_error
-from scenarios.scn_0 import run_scn_0
-from scenarios.scn_0b import run_scn_0b
-from scenarios.scn_1 import run_scn_1
+from core.utils.logger import log_info, log_error
+from services.airtable_service import AirtableService
+from scenarios.fonctionnel.scn_1 import run_scn_1
 
-def run_scenario(name: str, context: SmartCoachContext) -> InternalResult:
-    log_info(f"Scénario demandé : {name}", module="Dispatcher")
+SCENARIOS_MAP = {
+    "SCN_1": run_scn_1,
+}
 
-    if name == "SCN_0":
-        return run_scn_0(context)
+def dispatch_scenario(scenario: str, record_id: str):
+    log_info(f"Dispatcher → Scénario demandé : {scenario}", module="Dispatcher")
 
-    if name == "SCN_0b":
-        return run_scn_0b(context)
+    # Contexte minimal (uniquement scenario + record_id)
+    context = SmartCoachContext(
+        scenario=scenario,
+        record_id=record_id
+    )
 
-    if name == "SCN_1":
-        return run_scn_1(context)
+    # --- CHARGEMENT AIRT ABLE ---
+    try:
+        airtable = AirtableService()
+        record_raw = airtable.get_record(record_id)     # ✅ FIX : record_id, pas context
+    except Exception as e:
+        log_error(f"Erreur lors de la lecture Airtable : {e}", module="Dispatcher")
+        return {
+            "status": "error",
+            "messages": ["Erreur Airtable → impossible de lire le record"],
+            "data": {}
+        }
 
-    raise ValueError(f"Scénario inconnu : {name}")
+    if not record_raw:
+        return {
+            "status": "error",
+            "messages": ["Record Airtable introuvable ou vide"],
+            "data": {}
+        }
 
+    # OCR — Enrichir le contexte *après* lecture du record
+    context.record_raw = record_raw
+
+    # --- DISPATCH VERS LE BON SCENARIO ---
+    handler = SCENARIOS_MAP.get(scenario)
+    if not handler:
+        log_error(f"Scénario inconnu : {scenario}", module="Dispatcher")
+        return {"status": "error", "messages": ["Scénario inconnu"], "data": {}}
+
+    # Exécution
+    return handler(context)

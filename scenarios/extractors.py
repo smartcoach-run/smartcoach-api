@@ -1,47 +1,49 @@
-# services/extractors.py
-# =====================================================
-# Fonctions d'extraction génériques depuis Airtable
-# =====================================================
+# scenarios/extractors.py
+# Extraction des champs Airtable en utilisant ATFIELDS
 
-from typing import Any, Dict, List
-
+from core.utils.logger import log_debug
 from services.airtable_fields import ATFIELDS
 
 
-def _normalize_days_list(value: Any) -> List[str]:
+def extract_record_fields(record: dict) -> dict:
     """
-    Normalise le champ 'Jours disponibles' ou équivalent en liste de chaînes.
+    Transforme un record Airtable en un dictionnaire normalisé pour SmartCoach.
+    S'appuie UNIQUEMENT sur la classe ATFIELDS.
     """
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return [str(v) for v in value]
-    return [str(value)]
 
+    log_debug(f"Extractors → Record brut : {record}", module="Extractors")
 
-def extract_coureur_step1(record: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Extraction standard des infos coureur pour l'étape 1 de SCN_1
-    (et réutilisable pour d'autres scénarios).
-
-    Retourne un dict Make-friendly :
-    {
-        "prenom": ...,
-        "mode": ...,
-        "niveau": ...,
-        "objectif": ...,
-        "jours_dispo": [...],
-    }
-    """
     fields = record.get("fields", {}) or {}
 
-    jours_dispo_raw = fields.get(ATFIELDS.COU_JOURS_DISPO)
-    jours_dispo = _normalize_days_list(jours_dispo_raw)
-
     return {
+        # Champs utilisateur
         "prenom": fields.get(ATFIELDS.COU_PRENOM),
+        "email": fields.get(ATFIELDS.COU_EMAIL),
+        "genre": fields.get(ATFIELDS.COU_GENRE),
+        "age": fields.get(ATFIELDS.COU_AGE),
+
+        # Objectif / Cap
+        "cap_choisi": fields.get(ATFIELDS.COU_CAP_CHOISI),
+        "objectif_chrono": fields.get(ATFIELDS.COU_OBJECTIF_CHRONO),
+        "objectif_normalise": fields.get(ATFIELDS.COU_OBJECTIF_NORMALISE),
         "mode": fields.get(ATFIELDS.COU_MODE),
-        "niveau": fields.get(ATFIELDS.COU_NIVEAU_NORMALISE),
-        "objectif": fields.get(ATFIELDS.COU_OBJECTIF_NORMALISE),
-        "jours_dispo": jours_dispo,
+
+        # Niveau
+        "niveau": fields.get(ATFIELDS.COU_NIVEAU),
+        "niveau_normalise": fields.get(ATFIELDS.COU_NIVEAU_NORMALISE),
+        "cle_niveau_reference": fields.get(ATFIELDS.COU_CLE_NIVEAU_REF),
+
+        # Course
+        "date_course": fields.get(ATFIELDS.COU_DATE_COURSE),
+        "date_debut_plan": fields.get(ATFIELDS.COU_DATE_DEBUT_PLAN),
+
+        # Jours disponibles
+        "jours_disponibles": fields.get(ATFIELDS.COU_JOURS_DISPO, []),
+
+        # Jours optimisés & final
+        "jours_final": fields.get(ATFIELDS.COU_JOURS_FINAL, []),
+
+        # Données diverses du plan
+        "duree_plan_calc": fields.get(ATFIELDS.COU_DUREE_PLAN_CALC),
+        "test_duree_plan": fields.get(ATFIELDS.COU_TEST_DUREE_PLAN),
     }
