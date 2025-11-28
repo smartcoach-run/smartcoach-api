@@ -1,78 +1,30 @@
-# core/internal_result.py
+# ======================================================================
+# InternalResult : objet standard pour retourner les résultats internes
+# ======================================================================
+print(">>> InternalResult chargé depuis :", __file__)
 
 class InternalResult:
-    """
-    Format standard interne utilisé par les scénarios SmartCoach.
-    """
-
-    def __init__(
-        self,
-        status: str = "ok",
-        messages=None,
-        data=None,
-        debug: bool = False,
-        source: str = "engine",
-    ):
+    def __init__(self, status, message=None, data=None, context=None, source=None):
         self.status = status
-        self.messages = messages or []
+        self.message = message
         self.data = data or {}
-        self.debug = debug
+        self.context = context
         self.source = source
 
-    def to_dict(self):
-        """
-        Conversion en dict pour la réponse API / logs.
-        """
-        return {
-            "status": self.status,
-            "messages": self.messages,
-            "data": self.data,
-            "debug": self.debug,
-            "source": self.source,
-        }
-
-    # ------------------------------------------------------------------
-    # Fabriques pratiques
-    # ------------------------------------------------------------------
-    @classmethod
-    def ok(
-        cls,
-        data=None,
-        messages=None,
-        debug: bool = False,
-        source: str = "engine",
-    ):
-        """
-        Fabrique d'un résultat OK.
-        """
-        return cls(
-            status="ok",
-            data=data,
-            messages=messages or [],
-            debug=debug,
-            source=source,
-        )
+    @property
+    def success(self):
+        return self.status == "ok"
 
     @classmethod
-    def error(
-        cls,
-        message,
-        data=None,
-        debug: bool = False,
-        source: str = "engine",
-    ):
-        """
-        Fabrique d'un résultat en erreur.
-        """
-        if isinstance(message, list):
-            messages = message
-        else:
-            messages = [str(message)]
+    def make_success(cls, message=None, data=None, context=None, source=None):
+        return cls("ok", message=message, data=data, context=context, source=source)
 
-        return cls(
-            status="error",
-            data=data or {},
-            messages=messages,
-            debug=debug,
-            source=source,
-        )
+    @classmethod
+    def make_error(cls, message=None, data=None, context=None, source=None):
+        return cls("error", message=message, data=data, context=context, source=source)
+
+    @classmethod
+    def ok(cls, data=None, message=None, context=None, source=None):
+        return cls("ok", message=message, data=data, context=context, source=source)
+
+print(">>> InternalResult a status ?", hasattr(InternalResult("ok"), "status"))

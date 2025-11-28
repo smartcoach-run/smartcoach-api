@@ -1,58 +1,55 @@
-# api.py
-
-import os
-from core.config import *
 from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
 
-# Désactiver couleurs lors des appels API (visibilité Postman)
-os.environ["SMARTCOACH_NO_COLOR"] = "1"
-
-from core.context import SmartCoachContext
-from core.utils.logger import log_info, log_error
 from utils.server_banner import print_startup_banner
 from scenarios.dispatcher import dispatch_scenario
+from core.internal_result import InternalResult
+from core.utils.logger import get_logger
+
+from dotenv import load_dotenv
+load_dotenv()
+
+logger = get_logger("API")
 
 app = FastAPI()
 
-
-class GenerateRequest(BaseModel):
-    record_id: str
-    debug: bool = False
-    env: str = "dev"
-    source: str = "api"
-    scenario: str = "SCN_1"
-
-
 @app.on_event("startup")
-def startup_event():
-    host = "127.0.0.1"
-    port = 8000
+async def startup_event():
+    print_startup_banner("127.0.0.1", 8000, env="dev")
+    logger.info("API → Démarrage terminé")
 
-    print_startup_banner(host, port)
-    log_info("API → Démarrage terminé", module="API")
 
 @app.post("/generate_by_id")
-def generate_by_id(payload: GenerateRequest):
+async def generate_by_id(payload: dict):
+    logger.info("API → Requête reçue (SCN_1)")
 
-    log_info(f"API → Requête reçue ({payload.scenario})", module="API")
+    record_id = payload.get("record_id")
+    if not record_id:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "message": "record_id manquant",
+                "data": {}
+            }
+        )
 
-    try:
-        result = dispatch_scenario(payload.scenario, payload.record_id)
+    result = dispatch_scenario("SCN_1", record_id)
 
-        return {
+    # Sécurisation du type
+    if not isinstance(result, InternalResult):
+        logger.error("API → Retour inattendu du dispatcher")
+        return JSONResponse(
+            status_code=500,
+            content={"status": "error", "message": "Erreur interne"}
+        )
+
+    # Construction réponse API
+    return JSONResponse(
+        status_code=200,
+        content={
             "status": result.status,
-            "messages": result.messages,
-            "data": result.data,
-            "debug": payload.debug,
-            "env": payload.env,
-            "source": payload.source,
+            "message": result.message,
+            "data": result.data
         }
-
-    except Exception as e:
-        log_error(f"Erreur API : {e}", module="API")
-        return {
-            "status": "error",
-            "messages": [str(e)],
-            "data": None,
-        }
+    )

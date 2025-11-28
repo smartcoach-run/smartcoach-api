@@ -21,6 +21,12 @@ class SmartCoachContext(BaseModel):
         description="Record Airtable brut (avant SCN_0a)"
     )
 
+    # Pour garder une version json-ready si besoin
+    record_json: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Version nettoyée/serialisable du record"
+    )
+
     # --- Données normalisées (remplies par SCN_0a) ---
     record_norm: Optional[Dict[str, Any]] = Field(
         default=None,
@@ -34,13 +40,40 @@ class SmartCoachContext(BaseModel):
     structure_phased: Optional[Dict[str, Any]] = None   # sortie SCN_0e
     final_json: Optional[Dict[str, Any]] = None         # sortie SCN_0f
 
-    # --- MÉTHODE ESSENTIELLE POUR LE PIPELINE ------
-    def update(self, data: Dict[str, Any]):
+    # --- Méthodes utilitaires ------------------------
+    def update(self, data: Dict[str, Any]) -> "SmartCoachContext":
         """
         Met à jour dynamiquement le contexte avec les clés/valeurs fournies.
+        Utilisée par SCN_1 et les scénarios SOCLE.
         """
+        if not data:
+            return self
+
         for key, value in data.items():
             setattr(self, key, value)
+        return self
+
+    def safe_update(self, data: Optional[Any]) -> "SmartCoachContext":
+        """
+        Variante plus robuste : accepte dict, BaseModel ou None.
+        - None → ne fait rien
+        - BaseModel → converti en dict
+        - autre type → erreur explicite
+        """
+        if data is None:
+            return self
+
+        # Si on reçoit un autre modèle Pydantic
+        if isinstance(data, BaseModel):
+            data = data.model_dump()
+
+        if not isinstance(data, dict):
+            raise TypeError(
+                f"SmartCoachContext.safe_update attend un dict (ou BaseModel/None), "
+                f"reçu {type(data)}"
+            )
+
+        return self.update(data)
 
     class Config:
         arbitrary_types_allowed = True

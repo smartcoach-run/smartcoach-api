@@ -25,7 +25,7 @@ def run_scn_0c(context, jours_final):
     try:
         log_info("SCN_0c → Construction de la semaine-type", module="SCN_0c")
 
-        fields = context.record.get("fields", {})
+        fields = context.record_json.get("fields", {})
 
         # Champs nécessaires (provenant d'Airtable)
         try:

@@ -3,6 +3,8 @@
 import os
 from pyairtable import Table
 from core.utils.logger import log_info, log_warning, log_error
+from services.airtable_tables import ATABLES
+
 
 # 👉 On utilise UNIQUEMENT ce référentiel (IDs Airtable)
 from services.airtable_tables import ATABLES
@@ -53,7 +55,7 @@ class AirtableService:
 
         # 👟 Table par défaut : Coureurs
         self.table_name = ATABLES.COU_TABLE  # ← ID de la table Coureurs
-        self.table = Table(self.api_key, self.base_id, self.table_name)
+        self.table = Table(self.api_key, self.base_id, ATABLES.COU_TABLE)
 
         log_info(f"AirtableService → connecté à la table '{self.table_name}'",
                  module="AirtableService")

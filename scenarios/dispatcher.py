@@ -1,50 +1,34 @@
-# scenarios/dispatcher.py
-
-from core.context import SmartCoachContext
-from core.utils.logger import log_info, log_error
-from services.airtable_service import AirtableService
+from core.internal_result import InternalResult
 from scenarios.fonctionnel.scn_1 import run_scn_1
+from core.context import SmartCoachContext
+from core.utils.logger import get_logger
 
-SCENARIOS_MAP = {
+logger = get_logger("Dispatcher")
+
+SCENARIOS = {
     "SCN_1": run_scn_1,
 }
 
-def dispatch_scenario(scenario: str, record_id: str):
-    log_info(f"Dispatcher → Scénario demandé : {scenario}", module="Dispatcher")
 
-    # Contexte minimal (uniquement scenario + record_id)
-    context = SmartCoachContext(
-        scenario=scenario,
-        record_id=record_id
-    )
+def dispatch_scenario(scn_name: str, record_id: str) -> InternalResult:
+    logger.info(f"Dispatcher → Scénario demandé : {scn_name}")
 
-    # --- CHARGEMENT AIRT ABLE ---
-    try:
-        airtable = AirtableService()
-        record_raw = airtable.get_record(record_id)     # ✅ FIX : record_id, pas context
-    except Exception as e:
-        log_error(f"Erreur lors de la lecture Airtable : {e}", module="Dispatcher")
-        return {
-            "status": "error",
-            "messages": ["Erreur Airtable → impossible de lire le record"],
-            "data": {}
-        }
+    handler = SCENARIOS.get(scn_name)
 
-    if not record_raw:
-        return {
-            "status": "error",
-            "messages": ["Record Airtable introuvable ou vide"],
-            "data": {}
-        }
-
-    # OCR — Enrichir le contexte *après* lecture du record
-    context.record_raw = record_raw
-
-    # --- DISPATCH VERS LE BON SCENARIO ---
-    handler = SCENARIOS_MAP.get(scenario)
     if not handler:
-        log_error(f"Scénario inconnu : {scenario}", module="Dispatcher")
-        return {"status": "error", "messages": ["Scénario inconnu"], "data": {}}
+        return InternalResult.make_error(
+            message=f"Scénario inconnu : {scn_name}",
+            source="Dispatcher"
+        )
 
-    # Exécution
-    return handler(context)
+    context = SmartCoachContext(record_id=record_id)
+
+    try:
+        return handler(context)
+
+    except Exception as e:
+        logger.exception("Dispatcher → Exception : %s", e)
+        return InternalResult.make_error(
+            message=f"Erreur interne dans '{scn_name}' : {e}",
+            source="Dispatcher"
+        )
