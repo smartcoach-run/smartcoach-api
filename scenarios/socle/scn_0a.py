@@ -2,7 +2,6 @@ from typing import Any, Dict
 from core.internal_result import InternalResult
 from core.context import SmartCoachContext
 from core.utils.logger import get_logger
-from services.airtable_service import AirtableService
 from scenarios.extractors import extract_record_fields
 
 logger = get_logger("SCN_0a")
@@ -25,7 +24,7 @@ class SCN_0a:
                 )
 
             # --------------------------
-            # Extraction champs
+            # Extraction normalisée
             # --------------------------
             try:
                 extracted = extract_record_fields(record)
@@ -37,18 +36,21 @@ class SCN_0a:
                 )
 
             # --------------------------
-            # Champs obligatoires
+            # Champs obligatoires via clés normalisées
             # --------------------------
-            if "Prenom" not in extracted:
-                return InternalResult.make_error(
-                    message="Champ manquant : Prenom",
-                    context=context,
-                    source="SCN_0a"
-                )
+            required_fields = {
+                "prenom": "Prénom",
+                "email": "Email"
+            }
 
-            if "Email" not in extracted or not extracted["Email"]:
+            missing = [
+                label for key, label in required_fields.items()
+                if not extracted.get(key)
+            ]
+
+            if missing:
                 return InternalResult.make_error(
-                    message="Champ manquant : Email",
+                    message=f"Champ manquant : {', '.join(missing)}",
                     context=context,
                     source="SCN_0a"
                 )
@@ -57,8 +59,7 @@ class SCN_0a:
             # Succès
             # --------------------------
             logger.info(
-                "SCN_0a OK → Normalisation réussie pour record {}",
-                context.record_id
+                f"SCN_0a OK → Normalisation réussie pour record {context.record_id}"
             )
 
             return InternalResult.make_success(

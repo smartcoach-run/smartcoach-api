@@ -63,6 +63,8 @@ class ATFIELDS:
 
     RJ_NB_JOURS_MIN = "Nb_jours_min"
     RJ_NB_JOURS_MAX = "Nb_jours_max"
+    RJ_ESPACEMENT_MIN = "espacement_min"
+    RJ_ESPACEMENT_MAX = "espacement_max"
     RJ_JOURS_PROPOSES = "Jours_proposés"
     RJ_COMMENTAIRE_COACH = "Commentaire coach"
 

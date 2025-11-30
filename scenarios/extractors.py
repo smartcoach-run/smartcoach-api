@@ -38,12 +38,21 @@ def extract_record_fields(record: dict) -> dict:
         "date_debut_plan": fields.get(ATFIELDS.COU_DATE_DEBUT_PLAN),
 
         # Jours disponibles
-        "jours_disponibles": fields.get(ATFIELDS.COU_JOURS_DISPO, []),
+        "jours_disponibles": fields.get(ATFIELDS.COU_JOURS_DISPO),
 
         # Jours optimisés & final
-        "jours_final": fields.get(ATFIELDS.COU_JOURS_FINAL, []),
+        "jours_final": fields.get(ATFIELDS.COU_JOURS_FINAL),
 
         # Données diverses du plan
         "duree_plan_calc": fields.get(ATFIELDS.COU_DUREE_PLAN_CALC),
         "test_duree_plan": fields.get(ATFIELDS.COU_TEST_DUREE_PLAN),
+
+        # Jours Min et Max du nombre de séances
+        "jours_min": fields.get(ATFIELDS.RJ_NB_JOURS_MIN),
+        "jours_max": fields.get(ATFIELDS.RJ_NB_JOURS_MAX),       
+        
+        # Espacements Min et Max entre les séances
+        "espacement_min": fields.get(ATFIELDS.RJ_ESPACEMENT_MIN),
+        "espacement_max": fields.get(ATFIELDS.RJ_ESPACEMENT_MAX),    
+
     }
