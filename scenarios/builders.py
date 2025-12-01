@@ -23,55 +23,55 @@ from core.utils.logger import log_info, log_warning
 def build_step3_running(record: Dict[str, Any], step2_data: Dict[str, Any]) -> Dict[str, Any]:
     """Construit le bloc Step3 pour le mode Running.
 
-    1) On part des jours choisis par l'utilisateur.
-    2) On complète si besoin avec les jours proposés par REF_JOURS.
-    3) On ajoute la configuration des phases depuis la table 🛣️ Mapping Phase.
+    Version corrigée :
+    - les jours retenus proviennent directement de SCN_0b
+      (jours_result.jours_valides = source de vérité),
+    - on ne rebricole plus la liste à partir de REF_JOURS ici,
+      pour éviter de contredire le SOCLE.
     """
 
     fields = record.get("fields", {}) or {}
 
-    # -----------------------------
-    # 1) Jours utilisateur
-    # -----------------------------
+    # 1) Jours utilisateur (pour info / logs)
     user_days_raw = get_field(record, ATFIELDS.COU_JOURS_DISPO, default=[])
     if user_days_raw is None:
         user_days_raw = []
     if not isinstance(user_days_raw, list):
-        # Par sécurité, on tolère la string simple
         user_days_raw = [user_days_raw]
 
-    # Nombre de jours cibles (issu de Step2)
-    target_days = (
-        step2_data.get("jours_final")
-        or step2_data.get("jours_min")
-        or len(user_days_raw)
-    )
+    # 2) Jours optimisés par SCN_0b
+    jours_result = step2_data.get("jours_result", {}) or {}
+    chosen_days: List[str] = jours_result.get("jours_valides", [])
 
-    # Jours proposés par la table ⚖️ REF_JOURS (déjà calculés en Étape 2)
-    jours_proposes = step2_data.get("jours_proposes") or []
-    if not isinstance(jours_proposes, list):
-        jours_proposes = [jours_proposes]
+    if not chosen_days:
+        # Fallback de sécurité : on repart sur les jours saisis
+        chosen_days = list(user_days_raw)
 
-    # Construction de la liste finale :
-    # - on conserve l'ordre saisi par l'utilisateur
-    # - on complète avec les jours proposés jusqu'à atteindre le volume cible
-    chosen_days: List[str] = list(user_days_raw)
-    for day in jours_proposes:
-        if len(chosen_days) >= target_days:
-            break
-        if day not in chosen_days:
-            chosen_days.append(day)
-
+    # Jours ajoutés = jours présents dans chosen_days mais pas saisis par l'utilisateur
     days_added = [d for d in chosen_days if d not in user_days_raw]
 
     log_info(
-        f"SCN_1/Step3 → user_days={user_days_raw}, chosen={chosen_days}, days_added={days_added}",
+        f"SCN_1/Step3 → user_days={user_days_raw}, "
+        f"chosen={chosen_days}, days_added={days_added}",
         module="SCN_1",
     )
 
-    # -----------------------------
-    # 2) Phases (🛣️ Mapping Phase)
-    # -----------------------------
+    # 🔧 Ordre canonique de la semaine (Lundi → Dimanche), indispensable pour SCN_0d.
+    try:
+        ordered = [
+            j
+            for j in [
+                "Lundi", "Mardi", "Mercredi", "Jeudi",
+                "Vendredi", "Samedi", "Dimanche",
+            ]
+            if j in chosen_days
+        ]
+        chosen_days = ordered
+    except Exception:
+        # Sécurité : on garde l'ordre existant en cas de problème
+        pass
+
+    # 3) Phases (🛣️ Mapping Phase)
     objectif = get_field(record, ATFIELDS.COU_OBJECTIF_NORMALISE)
     mode = get_field(record, ATFIELDS.COU_MODE)
     duree_plan_raw = get_field(record, ATFIELDS.COU_DUREE_PLAN_CALC)
@@ -87,7 +87,6 @@ def build_step3_running(record: Dict[str, Any], step2_data: Dict[str, Any]) -> D
 
     phases: List[Dict[str, Any]] = []
     if (mode or "").lower() == "running" and objectif:
-        # On considère que COU_OBJECTIF_NORMALISE renvoie 5K / 10K / HM / M
         phases = _load_mapping_phases(distance=objectif)
 
     step3_payload: Dict[str, Any] = {
@@ -95,9 +94,10 @@ def build_step3_running(record: Dict[str, Any], step2_data: Dict[str, Any]) -> D
         # Jours
         "jours_user": user_days_raw,
         "jours_retenus": chosen_days,
-        "jours_final": int(target_days) if target_days is not None else len(chosen_days),
-        "jours_proposes": jours_proposes,
+        "jours_final": len(chosen_days),
+        "jours_proposes": [],          # plus gérés ici (SOCLE = SCN_0b)
         "jours_ajoutes": days_added,
+        "jours_result": jours_result,  # on garde la structure SOCLE si besoin
         # Phases
         "plan_distance": objectif,
         "plan_nb_semaines": nb_semaines_plan,
@@ -105,7 +105,6 @@ def build_step3_running(record: Dict[str, Any], step2_data: Dict[str, Any]) -> D
     }
 
     return step3_payload
-
 
 # -------------------------------------------------------------
 # Helpers internes

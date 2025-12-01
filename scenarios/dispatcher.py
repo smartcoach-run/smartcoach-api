@@ -5,6 +5,7 @@ from core.utils.logger import get_logger
 
 logger = get_logger("Dispatcher")
 
+
 SCENARIOS = {
     "SCN_1": run_scn_1,
 }

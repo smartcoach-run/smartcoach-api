@@ -2,8 +2,10 @@
 SCN_0f — Construction du JSON final (structure-only)
 SOCLE v2025-11
 """
-
+import logging
 from core.utils.logger import log_info, log_error, log_warning, log_debug
+
+log = logging.getLogger("SCN_0f")
 
 def run_scn_0f(
     record_id: str,
@@ -76,10 +78,10 @@ def run_scn_0f(
                 ]
             })
 
-        log_info("SCN_0f → JSON final assemblé avec succès")
+        log.info("SCN_0f → JSON final assemblé avec succès")
 
         return json_final
 
     except Exception as e:
-        log_error(f"SCN_0f → ERREUR durant l'assemblage JSON : {e}")
+        log.error(f"SCN_0f → ERREUR durant l'assemblage JSON : {e}")
         raise

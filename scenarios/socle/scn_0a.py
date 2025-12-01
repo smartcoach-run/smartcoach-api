@@ -4,15 +4,14 @@ from core.context import SmartCoachContext
 from core.utils.logger import get_logger
 from scenarios.extractors import extract_record_fields
 
-logger = get_logger("SCN_0a")
-
+log = get_logger("SCN_0a")
 
 class SCN_0a:
 
     @staticmethod
     def run(context: SmartCoachContext) -> InternalResult:
         try:
-            logger.info("Début SCN_0a → Validation & normalisation")
+            log.info("Début SCN_0a → Validation & normalisation")
 
             record = context.record_raw
 
@@ -58,7 +57,7 @@ class SCN_0a:
             # --------------------------
             # Succès
             # --------------------------
-            logger.info(
+            log.info(
                 f"SCN_0a OK → Normalisation réussie pour record {context.record_id}"
             )
 
@@ -70,7 +69,7 @@ class SCN_0a:
             )
 
         except Exception as e:
-            logger.exception("SCN_0a → Exception : %s", e)
+            log.exception("SCN_0a → Exception : %s", e)
             return InternalResult.make_error(
                 message=f"Erreur SCN_0a : {e}",
                 context=context,

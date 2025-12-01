@@ -2,8 +2,10 @@
 SCN_0d — Génération de la Structure (Slots)
 SOCLE v2025-11
 """
-
+import logging
 from core.utils.logger import log_info, log_error, log_warning, log_debug
+
+log = logging.getLogger("SCN_0d")
 
 def run_scn_0d(jours_retenus, jours_relatifs, nb_semaines):
     """
@@ -28,7 +30,7 @@ def run_scn_0d(jours_retenus, jours_relatifs, nb_semaines):
         ]
     """
 
-    logger.info(f"SCN_0d → Génération structure brute ({nb_semaines} semaines)")
+    log.info(f"SCN_0d → Génération structure brute ({nb_semaines} semaines)")
 
     structure = []
 
@@ -38,7 +40,7 @@ def run_scn_0d(jours_retenus, jours_relatifs, nb_semaines):
             slots = []
 
             for jour in jours_retenus:
-                position = jours_relatifs.get(jour)
+                position = jours_relatifs[jour]
                 slot_id = f"S{semaine}-J{position}"
 
                 slots.append({
@@ -52,10 +54,10 @@ def run_scn_0d(jours_retenus, jours_relatifs, nb_semaines):
                 "slots": slots
             })
 
-        logger.info("SCN_0d → Structure générée avec succès")
+        log.info("SCN_0d → Structure générée avec succès")
 
     except Exception as e:
-        logger.error(f"SCN_0d → ERREUR : {e}")
+        log.error(f"SCN_0d → ERREUR : {e}")
         raise
 
     return structure

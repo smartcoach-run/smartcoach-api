@@ -17,6 +17,19 @@ from services.airtable_tables import ATABLES
 from scenarios.validators import _compute_phases_for_objectif
 from core.utils.logger import log_info
 
+# === PATCH anti-warnings (2025-12) ===
+# Ces variables sont héritées d'un ancien moteur v0.2/v0.3.
+# Elles n'ont plus de rôle actif mais certaines fonctions les référencent encore.
+# On les définit ici pour éviter les warnings Pylance sans casser la rétrocompatibilité.
+
+semaine_type = None
+jours_proposes = None
+chosen = None
+days_added = None
+total_weeks = None
+phases = None
+objectif = None
+
 # ------------------------------------------------------------
 # Ordre canonique simple
 # ------------------------------------------------------------
@@ -147,6 +160,9 @@ def _optimize_days_with_rest(
 # ------------------------------------------------------------
 # STEP3 – Sélection des jours Running finalisés
 # ------------------------------------------------------------
+# ⚠️ DEPRECATED — NE PLUS UTILISER
+# Cette version historique de Step3 ne doit plus être appelée.
+# Le Step3 canonique est dans builders.py (SCN_1).
 def build_step3_running(record: Dict[str, Any], step2_data: Dict[str, Any]) -> Dict[str, Any]:
     """
     Étape 3 – Sélection des jours & phases pour le mode Running.
@@ -187,37 +203,38 @@ def build_step3_running(record: Dict[str, Any], step2_data: Dict[str, Any]) -> D
     jours_proposes_raw = step2_data.get("jours_proposes") or []
     proposed_days = _normalize_days_list(jours_proposes_raw)
 
-    # 4) OPTIMISATION INTELLIGENTE DES JOURS
-    #    - Utilise le pool user + proposed + complétion semaine
-    #    - Contrainte forte : si possible, toutes les combinaisons testées
-    #      DOIVENT contenir tous les jours utilisateur.
-    #
-    # On commence par construire le pool comme dans _optimize_days_with_rest,
-    # puis on délègue à la fonction d’optimisation.
-    chosen = _optimize_days_with_rest(
+    # --------------------------------------------
+    # 4) NB DE JOURS CIBLE = modèle (semaine-type)
+    # --------------------------------------------
+    meta = semaine_type.get("meta", {}) if semaine_type else {}
+    nb_jours_modele: int | None = meta.get("nb_jours")
+    if not nb_jours_modele:
+        nb_jours_modele = len(jours_proposes) or len(user_days)
+
+    # --------------------------------------------
+    # 5) OPTIMISATION : on repart de zéro
+    #    -> on se base sur :
+    #       - les jours utilisateur
+    #       - les jours proposés par le modèle
+    #       - nb_jours_modele (ex. 3 pour 10K Reprise)
+    # --------------------------------------------
+    chosen_days, debug = _optimize_days_with_rest(
         user_days=user_days,
-        proposed_days=proposed_days,
-        jours_final=jours_final,
+        jours_proposes=jours_proposes,
+        nb_jours_min=nb_jours_modele,
+        nb_jours_max=nb_jours_modele,
+        strict_candidates=True,
     )
 
-    # Sécurité SOCLE : si, malgré tout, certains jours utilisateur manquent,
-    # on les réinjecte puis on recompte proprement.
-    missing_user_days = [d for d in user_days if d not in chosen]
-    if missing_user_days:
-        log_info(
-            f"STEP3 → info : pattern optimal sans certains jours user : {missing_user_days}",
-            module="SCN_1",
-        )
-        # On NE réinjecte PAS les jours manquants ici.
-        # Ils seront expliqués plus tard dans le message utilisateur (Step Qualité / email).
+    # Jours ajoutés par rapport à la saisie
+    jours_supplementaires = [j for j in chosen_days if j not in user_days]
 
-    # Jours ajoutés automatiquement (complétion douce)
-    days_added = [d for d in chosen if d not in user_days]
+    # Drain de sécurité : si pour une raison quelconque on obtient 0 jour,
+    # on retombe sur les jours utilisateur.
+    if not chosen_days:
+        chosen_days = list(user_days)
+        jours_supplementaires = []
 
-    # 5) PHASES (en fonction de l’objectif)
-    objectif = step2_data.get("objectif")
-    phases = _compute_phases_for_objectif(objectif)
-    total_weeks = sum(ph.get("semaines", 0) for ph in phases)
 
     # 6) LOG CONTRÔLE
     log_info(
@@ -235,17 +252,37 @@ def build_step3_running(record: Dict[str, Any], step2_data: Dict[str, Any]) -> D
     )
 
     # 7) SORTIE STANDARDISÉE POUR STEP4
-    return {
-        "status": "ok",
-        "user_days": user_days,
-        "jours_final": jours_final,
-        "jours_retenus": chosen,
-        "days_added": days_added,
-        "jours_proposes": proposed_days,
-        "phases": phases,
-        "plan_distance": objectif,
-        "plan_nb_semaines": total_weeks,
-    }
+    # 0) PRIORITÉ : si Step2 (SCN_0b) a déjà calculé les jours → on les réutilise
+    jours_retenus_step2 = step2_data.get("jours_retenus")
+    # PATCH : si SCN_0b a produit des jours optimisés, on les récupère
+    scn0b_output = step2_data.get("jours_result", {})
+    jours_optimises = scn0b_output.get("jours_valides")
+
+    if jours_optimises:
+        chosen_days = _normalize_days_list(jours_optimises)
+    else:
+        chosen_days = _normalize_days_list(jours_retenus_step2)
+
+    if jours_retenus_step2:
+        chosen_days = _normalize_days_list(jours_retenus_step2)
+
+        log_info(
+            f"STEP3 → override : jours_retenus provenant de Step2 = {chosen_days}",
+            module="SCN_1",
+        )
+
+        # On renvoie directement la sortie standard Step3
+        return {
+            "status": "ok",
+            "user_days": chosen_days,                # car rang1 déjà géré par SCN_0b
+            "jours_final": len(chosen_days),
+            "jours_retenus": chosen_days,
+            "days_added": [],                        # SCN_0b les a déjà ajoutés
+            "jours_proposes": step2_data.get("jours_proposes", []),
+            "phases": phases,
+            "plan_distance": objectif,
+            "plan_nb_semaines": total_weeks,
+        }
 
 # ------------------------------------------------------------
 # STEP4 – Construction brute des semaines Running

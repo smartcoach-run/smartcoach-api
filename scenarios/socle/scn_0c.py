@@ -1,5 +1,8 @@
+import logging
 from core.utils.logger import log_info, log_debug
 from core.internal_result import InternalResult
+
+log = logging.getLogger("SCN_0c")
 
 ORDERED_DAYS = [
     "Lundi", "Mardi", "Mercredi", "Jeudi",
@@ -25,7 +28,7 @@ def run_scn_0c(context, jours_final):
 
         # Ordonnancement
         jours_ordonnes = [j for j in ORDERED_DAYS if j in jours_final]
-        log_debug(f"Jours retenus (ordonnés) → {jours_ordonnes}", module="SCN_0c")
+        log.debug(f"Jours retenus (ordonnés) → {jours_ordonnes}", module="SCN_0c")
 
         if not jours_ordonnes:
             return InternalResult.make_error(
@@ -39,8 +42,8 @@ def run_scn_0c(context, jours_final):
                 "cle_modele": cle_ref
             }
 
-        log_info("SCN_0c → Semaine-type construite avec succès", module="SCN_0c")
-        log_debug(f"Semaine-type → {semaine_type}", module="SCN_0c")
+        log.info("SCN_0c → Semaine-type construite avec succès", module="SCN_0c")
+        log.debug(f"Semaine-type → {semaine_type}", module="SCN_0c")
 
         return InternalResult.make_success(semaine_type)
 

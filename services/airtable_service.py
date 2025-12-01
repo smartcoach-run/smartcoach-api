@@ -1,10 +1,10 @@
 # services/airtable_service.py
 
 import os
+import logging
 from pyairtable import Table
 from core.utils.logger import log_info, log_warning, log_error
 from services.airtable_tables import ATABLES
-
 
 # 👉 On utilise UNIQUEMENT ce référentiel (IDs Airtable)
 from services.airtable_tables import ATABLES

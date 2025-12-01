@@ -1,5 +1,5 @@
 from typing import Dict, Any, List
-from utils.logging import log_info
+from core.utils.logger import log_info
 
 DAYS_ORDER = ["Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi", "Dimanche"]
 

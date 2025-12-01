@@ -2,8 +2,10 @@
 SCN_0e — Application des phases
 SOCLE v2025-11
 """
+import logging
+from core.utils.logger import log_info, log_error, log_warning, log_debug, get_logger
 
-from core.utils.logger import log_info, log_error, log_warning, log_debug
+log = logging.getLogger("SCN_0e")
 
 def run_scn_0e(structure_slots, nb_semaines):
     """
@@ -27,7 +29,7 @@ def run_scn_0e(structure_slots, nb_semaines):
         ]
     """
 
-    logger.info(f"SCN_0e → Attribution des phases (nb_semaines={nb_semaines})")
+    log_info(f"SCN_0e → Attribution des phases (nb_semaines={nb_semaines})")
 
     # Sélection du modèle de phases
     phases = _compute_phase_slices(nb_semaines)
@@ -47,10 +49,10 @@ def run_scn_0e(structure_slots, nb_semaines):
                 "slots": week_data["slots"]
             })
 
-        logger.info("SCN_0e → Phases appliquées avec succès")
+        log.info("SCN_0e → Phases appliquées avec succès")
 
     except Exception as e:
-        logger.error(f"SCN_0e → ERREUR : {e}")
+        log.error(f"SCN_0e → ERREUR : {e}")
         raise
 
     return result

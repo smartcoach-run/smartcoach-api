@@ -4,7 +4,7 @@ from typing import List, Optional, Sequence, Tuple, Dict
 
 from core.internal_result import InternalResult
 
-logger = logging.getLogger("SCN_0b")
+log = logging.getLogger("SCN_0b")
 
 # Ordre canonique des jours
 ORDERED_DAYS: List[str] = [
@@ -18,7 +18,6 @@ ORDERED_DAYS: List[str] = [
 ]
 
 DAY_INDEX: Dict[str, int] = {d: i for i, d in enumerate(ORDERED_DAYS)}
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -190,11 +189,11 @@ def run_scn_0b(
             esp_max = 7
 
         # Log de debug
-        logger.debug("SCN_0b ┊ esp_min = %s, esp_max = %s", esp_min, esp_max)
-        logger.debug("SCN_0b ┊ jours_user_raw  = %s", list(jours_user_raw or []))
-        logger.debug("SCN_0b ┊ jours_proposes  = %s", list(jours_proposes_norm))
-        logger.debug("SCN_0b ┊ jours_min       = %s", jours_min)
-        logger.debug("SCN_0b ┊ jours_max       = %s", jours_max)
+        log.debug("SCN_0b ┊ esp_min = %s, esp_max = %s", esp_min, esp_max)
+        log.debug("SCN_0b ┊ jours_user_raw  = %s", list(jours_user_raw or []))
+        log.debug("SCN_0b ┊ jours_proposes  = %s", list(jours_proposes_norm))
+        log.debug("SCN_0b ┊ jours_min       = %s", jours_min)
+        log.debug("SCN_0b ┊ jours_max       = %s", jours_max)
 
         # Construction des rangs
         rang1, rang2, rang3 = _build_ranked_candidates(jours_user, jours_proposes_norm)
@@ -276,7 +275,7 @@ def run_scn_0b(
                 strict_candidates,
                 key=lambda c: _spacing_penalty(c, esp_min, esp_max, rang1, rang2),
             )
-            logger.debug("SCN_0b ┊ combo choisie (strict) : %s", best)
+            log.debug("SCN_0b ┊ combo choisie (strict) : %s", best)
             return InternalResult.ok(
                 data={
                     "jours_result": {"jours_valides": best},
@@ -296,7 +295,7 @@ def run_scn_0b(
                 soft_candidates,
                 key=lambda c: _spacing_penalty(c, esp_min, esp_max, rang1, rang2),
             )
-            logger.debug("SCN_0b ┊ combo choisie (soft) : %s", best)
+            log.debug("SCN_0b ┊ combo choisie (soft) : %s", best)
             return InternalResult.ok(
                 data={
                     "jours_result": {"jours_valides": best},
@@ -313,7 +312,7 @@ def run_scn_0b(
             all_combos,
             key=lambda c: _spacing_penalty(c, esp_min, esp_max, rang1, rang2),
         )
-        logger.debug("SCN_0b ┊ combo choisie (fallback) : %s", best)
+        log.debug("SCN_0b ┊ combo choisie (fallback) : %s", best)
 
         return InternalResult.ok(
             data={
@@ -325,8 +324,7 @@ def run_scn_0b(
         )
 
     except Exception as e:
-        logger.exception("SCN_0b → Exception : %s", e)
-        return InternalResult.make_error(
-            message=f"Erreur dans SCN_0b : {e}",
+        log.exception("SCN_0b → Exception : %s", e)
+        return log.error(message=f"Erreur dans SCN_0b : {e}",
             source="SCN_0b",
         )
