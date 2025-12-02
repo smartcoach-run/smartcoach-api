@@ -325,6 +325,4 @@ def run_scn_0b(
 
     except Exception as e:
         log.exception("SCN_0b → Exception : %s", e)
-        return log.error(message=f"Erreur dans SCN_0b : {e}",
-            source="SCN_0b",
-        )
+        return log.error(message=f"Erreur dans SCN_0b : {e}",source="SCN_0b")

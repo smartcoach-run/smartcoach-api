@@ -1,55 +1,69 @@
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+# api.py
 
-from utils.server_banner import print_startup_banner
-from scenarios.dispatcher import dispatch_scenario
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv  # ⬅ import à ajouter
+
+from fastapi import FastAPI
+from pydantic import BaseModel
+
 from core.internal_result import InternalResult
 from core.utils.logger import get_logger
+from utils.server_banner import print_startup_banner
+from scenarios.dispatcher import dispatch_scenario
 
-from dotenv import load_dotenv
-load_dotenv()
+import logging
+# Chemin du projet (racine où se trouve ton .env)
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")  # ou simplement load_dotenv() si ton .env est bien à la racine courante
 
-logger = get_logger("API")
+# -----------------------------------------------------
+#  App Init + Banner
+# -----------------------------------------------------
+
+HOST = "127.0.0.1"
+PORT = 8000
+ENV = "dev"
+
+print_startup_banner(HOST, PORT, ENV)
 
 app = FastAPI()
 
-@app.on_event("startup")
-async def startup_event():
-    print_startup_banner("127.0.0.1", 8000, env="dev")
-    logger.info("API → Démarrage terminé")
+logger = logging.getLogger("API")
 
+
+# -----------------------------------------------------
+#  Request Model
+# -----------------------------------------------------
+
+class GenerateRequest(BaseModel):
+    scenario: str
+    record_id: str
+    payload: dict | None = None
+
+
+# -----------------------------------------------------
+#  Routes
+# -----------------------------------------------------
 
 @app.post("/generate_by_id")
-async def generate_by_id(payload: dict):
-    logger.info("API → Requête reçue (SCN_1)")
+async def generate_by_id(body: GenerateRequest):
+    logger.info(f"API → Requête reçue ({body.scenario})")
 
-    record_id = payload.get("record_id")
-    if not record_id:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "status": "error",
-                "message": "record_id manquant",
-                "data": {}
-            }
+    try:
+        result = dispatch_scenario(
+            scn_name=body.scenario,
+            record_id=body.record_id,
+            payload=body.payload or {}
         )
 
-    result = dispatch_scenario("SCN_1", record_id)
-
-    # Sécurisation du type
-    if not isinstance(result, InternalResult):
-        logger.error("API → Retour inattendu du dispatcher")
-        return JSONResponse(
-            status_code=500,
-            content={"status": "error", "message": "Erreur interne"}
-        )
-
-    # Construction réponse API
-    return JSONResponse(
-        status_code=200,
-        content={
-            "status": result.status,
-            "message": result.message,
-            "data": result.data
+        return {
+            "status": "ok",
+            "message": f"{body.scenario} terminé avec succès (v2025 stable)",
+            "data": result
         }
-    )
+
+    except Exception as e:
+        logger.exception(f"Erreur dans generate_by_id : {e}")
+        raise HTTPException(status_code=500, detail=str(e))

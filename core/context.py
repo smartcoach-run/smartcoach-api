@@ -39,6 +39,10 @@ class SmartCoachContext(BaseModel):
     structure_raw: Optional[Dict[str, Any]] = None      # sortie SCN_0d
     structure_phased: Optional[Dict[str, Any]] = None   # sortie SCN_0e
     final_json: Optional[Dict[str, Any]] = None         # sortie SCN_0f
+    # --- Données nécessaires pour SCN_6 (génération séances) ---
+    week_structure: Optional[Dict[str, Any]] = None
+    slots: Optional[Any] = None
+    phases: Optional[Any] = None    
 
     # --- Méthodes utilitaires ------------------------
     def update(self, data: Dict[str, Any]) -> "SmartCoachContext":
