@@ -2,6 +2,7 @@
 
 import os
 import logging
+import requests
 from pyairtable import Table
 from core.utils.logger import log_info, log_warning, log_error
 from services.airtable_tables import ATABLES
@@ -43,6 +44,31 @@ class AirtableService:
 
         return record
  
+    def iterate_records(self):
+        """Retourne tous les enregistrements de la table avec pagination."""
+        if not self.table_id:
+            raise ValueError("La table Airtable n'est pas définie. Appelle set_table() d'abord.")
+
+        all_records = []
+        params = {}
+
+        while True:
+            url = f"{self.API_URL}/{self.base_id}/{self.table_id}"
+            response = requests.get(url, headers=self.headers, params=params)
+            response.raise_for_status()
+            data = response.json()
+
+            all_records.extend(data.get("records", []))
+
+            offset = data.get("offset")
+            if not offset:
+                break
+
+            params["offset"] = offset
+
+        return all_records
+
+
     def __init__(self):
         # 🔐 Variables d’environnement (OK)
         self.api_key = os.getenv("AIRTABLE_API_KEY")

@@ -18,6 +18,9 @@ class ATABLES:
     SEANCES = "tblvFnCRyJVcMitI9"
     # 🛣️ Mapping Phase (Running)
     MAPPING_PHASES = "tblkO4XfXLd6xe9gY"    
+    #🎛️ Référentiel Catégories Séances
+    REF_CATEGORIES_SEANCES= "tbllVRZLXwsAOXvUw"
+    #📘 Référentiel Niveaux
 
 # 💬 Communication & Contenu
     #📋 Suivi génération
