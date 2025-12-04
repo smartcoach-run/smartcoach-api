@@ -43,6 +43,11 @@ def run_scn_1(context: SmartCoachContext) -> InternalResult:
     # Propagation valeurs normalisées
     context.record_norm = res_a.data
     context.update(res_a.data)
+    # Harmonisation objectif (singulier)
+    if "objectifs" in context.__dict__ and context.objectifs:
+        # On prend le premier élément
+        context.objectif = context.objectifs[0]
+
 
     # ------------------------------------------------------------
     # 1bis) Chargement Référence Jours (si présente)
@@ -147,6 +152,7 @@ def run_scn_1(context: SmartCoachContext) -> InternalResult:
         )
 
     context.update({"slots": slots})
+    context.slots_by_week = slots
 
     # ------------------------------------------------------------
     # 6) SCN_0e — Affectation des phases (progression)
@@ -154,10 +160,28 @@ def run_scn_1(context: SmartCoachContext) -> InternalResult:
     log.info("SCN_1 → Étape 6 : SCN_0e (phases)")
     try:
         phases = run_scn_0e(slots, nb_semaines)
+        # ------------------------------------------------------------
+        # 6bis) Harmonisation des phases (mapping v2025)
+        # ------------------------------------------------------------
+        PHASE_MAP = {
+            "PHASE 1 — Base": "Prépa générale",
+            "PHASE 2 — Développement": "Spécifique",
+            "PHASE 3 — Affûtage": "Affûtage",
+            "Phase 1 — Base": "Prépa générale",
+            "Phase 2 — Développement": "Spécifique",
+            "Phase 3 — Affûtage": "Affûtage",
+        }
+
+        for p in phases:
+            nom = p.get("phase")
+            if nom in PHASE_MAP:
+                p["phase"] = PHASE_MAP[nom]
+
     except Exception as e:
         return InternalResult.make_error(
             f"Erreur SCN_0e : {e}", source="SCN_1"
         )
+    log.info(f"[SCN_1] SLOTS before update = {slots}")
 
     context.update({"phases": phases})
 

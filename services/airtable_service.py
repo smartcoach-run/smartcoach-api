@@ -158,3 +158,18 @@ class AirtableService:
             )
             return []
 
+    # ---------------------------------------------------------
+    # Alias simple pour compat SCN_6 : fetch_all(table_id)
+    # ---------------------------------------------------------
+    def fetch_all(self, table_id: str) -> list:
+        """
+        Alias de list_all() pour compatibilité avec SCN_6.
+        """
+        return self.list_all(table_id)
+
+    def get_session_types(self):
+        """
+        Retourne tous les records de la table 📘 Séances Types
+        """
+        self.set_table(ATABLES.SEANCES_TYPES)
+        return self.get_all_records()

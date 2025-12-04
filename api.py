@@ -77,11 +77,28 @@ def generate_sessions(payload: dict):
     """Exécute SCN_6 directement depuis le payload brut."""
     from scenarios.agregateur.scn_6 import run_scn_6
 
-    # On instancie proprement ton contexte
     context = SmartCoachContext(
         scenario="SCN_6",
-        record_id=payload.get("record_id", ""),
-        payload=payload
+        record_id=payload.get("record_id", "")
     )
 
-    return run_scn_6(context)
+    # Champs nécessaires à SCN_6
+    if "week_structure" in payload:
+        context.week_structure = payload["week_structure"]
+    if "slots" in payload:
+        context.slots = payload["slots"]
+    if "phases" in payload:
+        context.phases = payload["phases"]
+    if "objectif_normalise" in payload:
+        context.objectif_normalise = payload["objectif_normalise"]
+
+    result = run_scn_6(context)
+    # on retourne l'InternalResult sous forme dict
+    return {
+        "status": result.status,
+        "message": result.message,
+        "data": result.data,
+        "source": result.source,
+    }
+
+

@@ -1,81 +1,63 @@
-from typing import Any, Dict
+# smartcoach_api/scenarios/socle/scn_0a.py
+# ====================================================
+# SCN_0a : Normalisation et validation du record Airtable
+
 from core.internal_result import InternalResult
-from core.context import SmartCoachContext
 from core.utils.logger import get_logger
-from scenarios.extractors import extract_record_fields
+from services.airtable_tables import ATABLES
+from services.airtable_service import AirtableService
 
 log = get_logger("SCN_0a")
 
-class SCN_0a:
+def run_scn_0a(context) -> InternalResult:
+    """
+    SCN_0a : Normalise les données coureur de Airtable
+    """
 
-    @staticmethod
-    def run(context: SmartCoachContext) -> InternalResult:
-        try:
-            log.info("Début SCN_0a → Validation & normalisation")
+    # --- LECTURE DU RECORD COUREUR ---
+    try:
+        service = AirtableService()
+        service.set_table(ATABLES.COU_TABLE)
+        record = service.get_record(context.record_id)
 
-            record = context.record_raw
+    except Exception as e:
+        log.error("[SCN_0a] Impossible de lire le record '%s' (%s)", context.record_id, e)
+        return InternalResult(
+            status="error",
+            message=f"Impossible de lire le record {context.record_id}",
+            data={},
+            source="SCN_0a"
+        )
 
-            if not record:
-                return InternalResult.make_error(
-                    message="Record Airtable vide ou introuvable",
-                    context=context,
-                    source="SCN_0a"
-                )
+    # --- LECTURE DU REF NIVEAUX (BEST EFFORT) ---
+    try:
+        ref_service = AirtableService()
+        ref_rows = ref_service.list_all(ATABLES.REF_NIVEAUX)
 
-            # --------------------------
-            # Extraction normalisée
-            # --------------------------
-            try:
-                extracted = extract_record_fields(record)
-            except Exception as e:
-                return InternalResult.make_error(
-                    message=f"Erreur extraction champs : {e}",
-                    context=context,
-                    source="SCN_0a"
-                )
+    except Exception as e:
+        log.warning("[SCN_0a] Impossible de lire REF_NIVEAUX (%s)", e)
+        ref_rows = []
 
-            # --------------------------
-            # Champs obligatoires via clés normalisées
-            # --------------------------
-            required_fields = {
-                "prenom": "Prénom",
-                "email": "Email"
-            }
+    # --- PATCH LOCAL SI MATCH REF ---
+    if ref_rows:
+        ref_match = next(
+            (r for r in ref_rows
+             if r.get("fields", {}).get("Clé_niveau_reference")
+             == record.get("fields", {}).get("Clé_niveau_reference")),
+            None
+        )
 
-            missing = [
-                label for key, label in required_fields.items()
-                if not extracted.get(key)
-            ]
+        if ref_match:
+            log.info("[SCN_0a] REF_NIVEAUX trouvé pour ce coureur")
+            fields = ref_match.get("fields", {})
+            for key in ["VDOT_initial", "VDOT_moyen_LK"]:
+                if key in fields:
+                    record["fields"][key] = fields[key]
 
-            if missing:
-                return InternalResult.make_error(
-                    message=f"Champ manquant : {', '.join(missing)}",
-                    context=context,
-                    source="SCN_0a"
-                )
-
-            # --------------------------
-            # Succès
-            # --------------------------
-            log.info(
-                f"SCN_0a OK → Normalisation réussie pour record {context.record_id}"
-            )
-
-            return InternalResult.make_success(
-                message="SCN_0a OK",
-                data=extracted,
-                context=context,
-                source="SCN_0a"
-            )
-
-        except Exception as e:
-            log.exception("SCN_0a → Exception : %s", e)
-            return InternalResult.make_error(
-                message=f"Erreur SCN_0a : {e}",
-                context=context,
-                source="SCN_0a"
-            )
-
-
-def run_scn_0a(context: SmartCoachContext) -> InternalResult:
-    return SCN_0a.run(context)
+    # --- OK ---
+    return InternalResult(
+        status="ok",
+        message="SCN_0a terminé avec succès",
+        data={"record_norm": record},
+        source="SCN_0a"
+    )

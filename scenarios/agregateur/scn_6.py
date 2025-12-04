@@ -1,180 +1,190 @@
-import logging
-from services.airtable_service import AirtableService
+# smartcoach_api/scenarios/agregateur/scn_6.py
+# ============================================================
+# SCN_6 : Agrégation finale du plan, génération HTML + structure
+# Moteur SmartCoach Engine (v2025)
+# ============================================================
+
+from typing import Dict, Any, List
 from core.internal_result import InternalResult
+from core.context import SmartCoachContext
+from services.airtable_service import AirtableService
+from services.airtable_tables import ATABLES
+from fastapi import HTTPException
 
-logger = logging.getLogger("SCN_6")
-
-# --------------------------------------------------------------------
-#  UTILITAIRES
-# --------------------------------------------------------------------
+# ===== IMPORT MAPPING =====
+from utils.session_types_utils import map_record_to_session_type
 
 
-def detect_allure(jour_relatif: int, objectif_normalise: str) -> str:
+# ============================================================
+# Sélection du template normalisé
+# ============================================================
+def find_template(
+    templates: List[Dict[str, Any]],
+    phase_label: str,
+    objectif: str,
+    allure: str
+):
     """
-    Mapping simple :
-        - J1 → E
-        - J2 → T / I / R (random contrôlé)
-        - J3 → ASxx selon distance
+    Recherche d’un template via les champs normalisés :
+      - phase_ids      (Phase cible)
+      - objectifs      (Objectif : 10K, HM, M…)
+      - slot_types     (E, EF, I, AS10...)
     """
 
-    if jour_relatif == 1:
-        return "E"
-
-    if jour_relatif == 2:
-        # cycle T/I/R déterministe pour éviter le random
-        cycle = ["T", "I", "R"]
-        return cycle[(jour_relatif - 1) % 3]
-
-    if jour_relatif == 3:
-        if objectif_normalise in ["10K", "10 km"]:
-            return "AS10"
-        if objectif_normalise in ["21K", "21 km", "Semi"]:
-            return "AS21"
-        if objectif_normalise in ["42K", "42 km", "Marathon"]:
-            return "AS42"
-        return "AS10"
-
-    return "E"
-
-
-def find_template(records, phase_label, distance_norm, allure):
-    """
-    Recherche dans 📘 Séances types :
-    - Champ "Phase" = libellé
-    - Champ "Objectif" contient la distance normalisée
-    - Champ "Catégorie" = allure (E / T / I / R / AS10 / etc.)
-    """
     matching = []
 
-    for rec in records:
-        f = rec.get("fields", {})
+    for tpl in templates:
+        phases = tpl.get("phase_ids", [])
+        objectifs = tpl.get("objectifs", [])
+        types = tpl.get("slot_types", [])
 
-        # PHASE
-        if f.get("Phase") != phase_label:
+        # Phase match
+        if phase_label not in phases:
             continue
 
-        # DISTANCE -> champ "Objectif" = multi-select
-        obj = f.get("Objectif", [])
-        if isinstance(obj, list):
-            if distance_norm not in obj:
-                continue
-        else:
+        # Objectif (ex : "10K")
+        if objectif not in objectifs:
             continue
 
-        # CATÉGORIE
-        if f.get("Catégorie") != allure:
+        # Type séance (court)
+        if allure not in types:
             continue
 
-        matching.append(rec)
+        matching.append(tpl)
 
     if not matching:
         return None
 
-    # Retourne la première correspondance (simple, déterministe)
+    # Pour l’instant → premier match
     return matching[0]
 
 
-# --------------------------------------------------------------------
-#  SCN_6 SIMPLE
-# --------------------------------------------------------------------
+# ============================================================
+# Construction du JSON final semaine → séances
+# ============================================================
+def build_plan_structure(context: SmartCoachContext, templates: List[Dict[str, Any]]):
 
+    # 1) Données de base du contexte
+    phases = context.phases or []
+    sessions = context.get("sessions_targets") or []
 
-def run_scn_6(context):
+    # Objectif normalisé : on privilégie la version normalisée
+    objectif = (
+        getattr(context, "objectif_normalise", None)
+        or getattr(context, "objectif", None)
+        or ""
+    )
+
+    # 2) Index des phases par semaine : {1: "Prépa générale", 2: "Spécifique", ...}
+    phase_by_week = {}
+    for p in phases:
+        semaine = p.get("semaine")
+        if semaine is not None:
+            phase_by_week[semaine] = p.get("phase")
+
+    # 3) Regroupement des séances par semaine : {1: [sess1, sess2], 2: [...], ...}
+    sessions_by_week: Dict[int, List[Dict[str, Any]]] = {}
+    for sess in sessions:
+        semaine = sess.get("semaine")
+        if semaine is None:
+            continue
+        sessions_by_week.setdefault(semaine, []).append(sess)
+
+    plan: List[Dict[str, Any]] = []
+
+    # 4) Construction du plan, semaine par semaine (ordre croissant)
+    for semaine in sorted(sessions_by_week.keys()):
+        phase_name = phase_by_week.get(semaine, "")
+
+        block = {
+            "semaine": semaine,
+            "phase": phase_name,
+            "seances": [],
+        }
+
+        # On trie les séances dans la semaine par jour_relatif pour un rendu propre
+        seances_semaine = sorted(
+            sessions_by_week[semaine],
+            key=lambda s: s.get("jour_relatif", 0),
+        )
+
+        for sess in seances_semaine:
+            slot_id = sess.get("slot_id")
+            jour = sess.get("jour")
+            jour_relatif = sess.get("jour_relatif")
+
+            # Type court pour le matching template (EF, I, AS10, ...)
+            allure = (
+                sess.get("type_seance_cle")
+                or sess.get("categorie_seance")
+                or ""
+            )
+
+            template = find_template(
+                templates=templates,
+                phase_label=phase_name or "",
+                objectif=objectif,
+                allure=allure,
+            )
+
+            if template:
+                block["seances"].append(
+                    {
+                        "slot_id": slot_id,
+                        "jour": jour,
+                        "jour_relatif": jour_relatif,
+                        "type_allure": allure,
+                        "categorie": template.get("categorie"),
+                        "modele": template.get("nom"),
+                        "duree": template.get("duree_min"),
+                        "description": template.get("description"),
+                    }
+                )
+            else:
+                block["seances"].append(
+                    {
+                        "slot_id": slot_id,
+                        "jour": jour,
+                        "jour_relatif": jour_relatif,
+                        "type_allure": allure,
+                        "modele": "Séance non trouvée",
+                        "categorie": allure,
+                        "duree": None,
+                        "description": "Aucun modèle correspondant dans Airtable.",
+                    }
+                )
+
+        plan.append(block)
+
+    return plan
+
+# ============================================================
+# SCN_6 — Entrée principale
+# ============================================================
+def run_scn_6(context: SmartCoachContext) -> InternalResult:
     """
-    SCN_6 SIMPLE :
-    - Prend les slots construits par SCN_1
-    - Détermine type d'allure par slot
-    - Sélectionne un template Airtable
-    - Renvoie un JSON structuré
+    Agrégation finale :
+      - On lit Airtable (Séances types)
+      - On normalise (map_record_to_session_type)
+      - On génère la structure finale du plan
     """
-
-    logger.info("SCN_6 → Démarrage (Version SIMPLE)")
 
     try:
         service = AirtableService()
-        table_name = "📘 Séances types"
 
-        logger.info("SCN_6 → Chargement des templates Airtable…")
-        all_templates = service.fetch_all(table_name)
+        raw_templates = service.list_all(ATABLES.SEANCES_TYPES)
 
-        distance = context.objectif_normalise  # ex : "10K"
-        phases = context.week_structure.get("weeks", [])
-        slots_by_week = context.slots  # issu de SCN_1
+        templates = [map_record_to_session_type(rec) for rec in raw_templates]
 
-        final_output = []
-
-        for week_obj in slots_by_week:
-            semaine_num = week_obj["semaine"]
-            slot_list = week_obj["slots"]
-
-            # identifier la phase de la semaine
-            phase_info = next(
-                (p for p in phases if p["semaine"] == semaine_num),
-                None
-            )
-            if not phase_info:
-                logger.warning(f"SCN_6 → Pas trouvé phase pour semaine {semaine_num}")
-                continue
-
-            phase_label = phase_info["phase"]  # ex : "Prépa générale"
-
-            week_result = {
-                "semaine": semaine_num,
-                "phase": phase_label,
-                "seances": []
-            }
-
-            for s in slot_list:
-                jour = s["jour"]
-                jr = s["jour_relatif"]
-                slot_id = s["slot_id"]
-
-                # déterminer l’allure
-                allure = detect_allure(jr, distance)
-
-                # récupérer template
-                tpl = find_template(
-                    all_templates,
-                    phase_label=phase_label,
-                    distance_norm=distance,
-                    allure=allure
-                )
-
-                if tpl:
-                    f = tpl["fields"]
-                    modele = f.get("Modèle", "")
-                    categorie = f.get("Catégorie", "")
-                    duree = f.get("Durée", "")
-                    description = f.get("Description", "")
-                else:
-                    modele = "Séance non trouvée"
-                    categorie = allure
-                    duree = None
-                    description = "Aucun modèle correspondant dans Airtable."
-
-                week_result["seances"].append({
-                    "slot_id": slot_id,
-                    "jour": jour,
-                    "jour_relatif": jr,
-                    "type_allure": allure,
-                    "modele": modele,
-                    "categorie": categorie,
-                    "duree": duree,
-                    "description": description
-                })
-
-            final_output.append(week_result)
-
-        logger.info("SCN_6 → OK (simple generation)")
+        plan = build_plan_structure(context, templates)
 
         return InternalResult.ok(
-            message="SCN_6 terminé avec succès (Version SIMPLE)",
-            data={"plan": final_output}
+            message="SCN_6 terminé avec succès (Version STABLE)",
+            data={"plan": plan},
         )
 
     except Exception as e:
-        logger.exception("SCN_6 → ERREUR")
-        return InternalResult.error(
-            message=f"Erreur dans SCN_6 : {e}",
-            source="SCN_6"
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erreur dans SCN_6 : {e}"
         )

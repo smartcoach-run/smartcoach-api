@@ -10,7 +10,18 @@ class SmartCoachContext(BaseModel):
     Aucune logique métier ici.
     Simple conteneur de données.
     """
+    user: dict = {}
+    objectifs: dict = {}
+    semaines: list = []
+    jours_optimises: list = []
+    phases: list = []
 
+    # --- AJOUTS CRITIQUES POUR SCN_2 / SCN_3 / SCN_6 ---
+    slots_by_week: dict = Field(default_factory=dict)
+    sessions_targets: list = Field(default_factory=list)
+
+    class Config:
+        arbitrary_types_allowed = True
     # --- Identité technique -------------------------
     scenario: str = Field(default="", description="Nom du scénario demandé")
     record_id: str = Field(default="", description="ID Airtable du record")
@@ -78,6 +89,28 @@ class SmartCoachContext(BaseModel):
             )
 
         return self.update(data)
+    def merge_result(self, result):
+        """
+        Merge propre d'un InternalResult dans le contexte.
+        Ne remplace pas les champs existants sauf si explicitement envoyé.
+        Permet d’enchaîner SCN_1 → SCN_2 → SCN_3 → SCN_6.
+        """
+
+        if not result or not hasattr(result, "data"):
+            return
+
+        data = result.data or {}
+
+        for key, value in data.items():
+            if value is not None:
+                setattr(self, key, value)
+    def get(self, key: str, default=None):
+        """
+        Permet d'accéder au contexte comme un dict : context.get("x")
+        tout en restant compatible Pydantic.
+        """
+        return getattr(self, key, default)
+
 
     class Config:
         arbitrary_types_allowed = True

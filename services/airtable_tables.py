@@ -21,6 +21,7 @@ class ATABLES:
     #🎛️ Référentiel Catégories Séances
     REF_CATEGORIES_SEANCES= "tbllVRZLXwsAOXvUw"
     #📘 Référentiel Niveaux
+    REF_NIVEAUX ="tblvTVYo7uDI8Qhb3"
 
 # 💬 Communication & Contenu
     #📋 Suivi génération

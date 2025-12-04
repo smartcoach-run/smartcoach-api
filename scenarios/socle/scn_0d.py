@@ -1,63 +1,56 @@
-"""
-SCN_0d — Génération de la Structure (Slots)
-SOCLE v2025-11
-"""
-import logging
-from core.utils.logger import log_info, log_error, log_warning, log_debug
+# ============================================================
+# SCN_0d — Génération des slots bruts (v2025 stable)
+# Compatibilité : SCN_1 (appel direct) + SCN_2 (itération)
+# Entrée : jours_retenus (liste), jours_relatifs (dict), nb_semaines (int)
+# Sortie : dict { "S1": {"slots": [...]}, "S2": {"slots": [...]} }
+# Pas d’InternalResult ici — SCN_1 gère déjà tout.
+# ============================================================
 
-log = logging.getLogger("SCN_0d")
+from core.utils.logger import get_logger
+log = get_logger("SCN_0d")
 
 def run_scn_0d(jours_retenus, jours_relatifs, nb_semaines):
     """
-    SOCLE — pure function
-    Génère la structure brute (slots) semaine par semaine.
+    Génère les slots bruts (Sx-Jy) pour les semaines/ jours retenus.
 
-    Inputs :
-        jours_retenus  = ["Lundi", "Mercredi", "Dimanche"]
-        jours_relatifs = {"Lundi":1, "Mercredi":2, "Dimanche":3}
-        nb_semaines    = 7
-
-    Output :
-        [
-          {
-            "semaine": 1,
+    Exemple de sortie :
+    {
+        "S1": {
             "slots": [
-                {"jour":"Lundi","jour_relatif":1,"slot_id":"S1-J1"},
-                ...
+                {"slot_id": "S1-J1", "jour": "Mardi", "jour_relatif": 1},
+                {"slot_id": "S1-J2", "jour": "Jeudi", "jour_relatif": 2},
+                {"slot_id": "S1-J3", "jour": "Dimanche", "jour_relatif": 3},
             ]
-          },
-          ...
-        ]
+        },
+        "S2": { ... }
+    }
     """
+    if not jours_retenus or not jours_relatifs or nb_semaines <= 0:
+        return {}
 
-    log.info(f"SCN_0d → Génération structure brute ({nb_semaines} semaines)")
+    slots_by_week = {}
 
-    structure = []
+    # Pour chaque semaine
+    for semaine in range(1, nb_semaines + 1):
+        week_id = f"S{semaine}"
+        slots = []
 
-    try:
-        for semaine in range(1, nb_semaines + 1):
+        # Pour chaque jour choisi par l'utilisateur
+        for jour in jours_retenus:
+            rel = jours_relatifs.get(jour, None)
+            if rel is None:
+                continue
 
-            slots = []
+            slot_id = f"{week_id}-J{rel}"
 
-            for jour in jours_retenus:
-                position = jours_relatifs[jour]
-                slot_id = f"S{semaine}-J{position}"
-
-                slots.append({
-                    "jour": jour,
-                    "jour_relatif": position,
-                    "slot_id": slot_id
-                })
-
-            structure.append({
-                "semaine": semaine,
-                "slots": slots
+            slots.append({
+                "slot_id": slot_id,
+                "jour": jour,
+                "jour_relatif": rel
             })
 
-        log.info("SCN_0d → Structure générée avec succès")
+        slots_by_week[week_id] = {"slots": slots}
 
-    except Exception as e:
-        log.error(f"SCN_0d → ERREUR : {e}")
-        raise
+    log.info(f"[SCN_0d] OUTPUT slots_by_week = {slots_by_week}")
 
-    return structure
+    return slots_by_week
