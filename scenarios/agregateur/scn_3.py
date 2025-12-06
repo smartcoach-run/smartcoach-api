@@ -1,112 +1,76 @@
-# ======================================================================
-#  SCENARIO 3 : Mapping catégories / modèles de séance (Option C)
-# ======================================================================
+# =====================================================================
+# SCN_3 – Mapping modèles Airtable → Slots (SmartCoach 2025 STABLE)
+# =====================================================================
 
-from services.airtable_service import AirtableService
-from services.airtable_tables import ATABLES
-# ===== IMPORT MAPPING =====
 from utils.session_types_utils import map_record_to_session_type
+import logging
 
+logger = logging.getLogger("SCN_3")
 
-
-def convert_phase(phase_scn1):
-    """
-    Convertit la phase issue de SCN_1 vers les phases Airtable.
-    Ajustable selon ta logique d'entraînement.
-    """
-    mapping = {
-        "Prépa générale": ["Base1", "Base2"],
-        "Spécifique": ["Progression"],
-        "Affûtage": ["Affûtage"]
-    }
-    return mapping.get(phase_scn1, [])
-
-
-def select_model(models, phases, univers="Running"):
-    """
-    Sélectionne LE modèle Airtable correspondant à :
-    - une phase (Base1/Base2/Progression/Affûtage)
-    - un univers (Running)
-    - un type d'allure cohérent (mais pas obligatoire pour V1)
-    """
-
-    candidates = []
-
-    for m in models:
-
-        # 1) Univers
-        univers_list = m.get("univers", [])
-        if univers not in univers_list:
-            continue
-
-        # 2) Phase
-        phase_ids = m.get("phase_ids", [])
-        if not any(p in phase_ids for p in phases):
-            continue
-
-        candidates.append(m)
-
-    # Pour V1 → premier match
-    return candidates[0] if candidates else None
-
-
-
-# ======================================================================
-#  RUN SCN_3
-# ======================================================================
 
 def run_scn_3(context):
+    logger.info("[SCN_3] ▶ Mapping catégories / modèles Airtable")
 
-    print("[SCN_3] ▶ Mapping catégories / modèles Airtable")
+    records = getattr(context, "models_seance_types", None)
 
-    # -----------------------------------------------------------
-    # Charger les modèles Airtable (séances types)
-    # -----------------------------------------------------------
-    airtable = AirtableService()
-    raw_models = airtable.list_all(ATABLES.SEANCES_TYPES)
-    models = [map_record_to_session_type(rec) for rec in raw_models]
+    if not records:
+        raise RuntimeError("SCN_3 : aucun modèle 'Séances Types' dans le context. Vérifie SCN_1.")
 
-    # Vérification DEBUG
-    print(f"[SCN_3] {len(models)} modèles Airtable chargés.")
+    # Convertir Airtable → SessionType
+    models = [map_record_to_session_type(rec) for rec in records]
 
-    sessions = context.sessions_targets  # sessions issues de SCN_2
-    cleaned_sessions = []
+    logger.info(f"[SCN_3] {len(models)} modèles Airtable chargés.")
 
-    for sess in sessions:
-        phase_s1 = sess.get("phase")              # ex: "Prépa générale"
-        phases_normalisees = convert_phase(phase_s1)
+    slots_by_week = context.slots_by_week
+    user_mode = context.user_mode
 
-        # -----------------------------------------------------------
-        # Sélection du modèle Airtable (via Option C)
-        # -----------------------------------------------------------
-        modele = select_model(models, phases_normalisees, univers="Running")
+    for week_id, data in slots_by_week.items():
+        for slot in data["slots"]:
 
-        if modele:
-            sess["categorie_seance"] = modele.get("categorie")
-            sess["type_seance_cle"] = modele.get("type_allure")
-            sess["modele_nom"] = modele.get("nom")
-            sess["duree_min"] = modele.get("duree_min")
-            sess["description"] = modele.get("description")
-        else:
-            # Aucun modèle trouvé → on garde des champs vides,
-            # mais SCN_6 ne plantera plus : valeurs vides OK.
-            sess["categorie_seance"] = ""
-            sess["type_seance_cle"] = ""
-            sess["modele_nom"] = "Séance non trouvée"
-            sess["duree_min"] = None
-            sess["description"] = "Aucun modèle compatible dans Airtable."
+            target_cat = slot.get("type_allure")
+            target_phase = slot.get("phase")
+            found = None
 
-        cleaned_sessions.append(sess)
+            # 1️⃣ Match exact
+            for m in models:
+                if (
+                    m.cat_smartcoach == target_cat
+                    and target_phase in m.phase_ids
+                    and (not m.mode or user_mode in m.mode)
+                ):
+                    found = m
+                    break
 
-    # Mise à jour du contexte
-    context.sessions_targets = cleaned_sessions
+            # 2️⃣ Match partiel (sans phase)
+            if not found:
+                for m in models:
+                    if (
+                        m.cat_smartcoach == target_cat
+                        and (not m.mode or user_mode in m.mode)
+                    ):
+                        found = m
+                        break
 
-    print("[SCN_3] ✔ Terminé — modèles ajoutés aux sessions.")
+            # 3️⃣ Fallback EF
+            if not found and user_mode == "Running":
+                for m in models:
+                    if m.cat_smartcoach == "EF":
+                        found = m
+                        break
 
-    from core.internal_result import InternalResult
+            # 4️⃣ Rien trouvé
+            if not found:
+                slot["modele"] = "Séance non trouvée"
+                slot["description"] = "Aucun modèle correspondant dans Airtable."
+                slot["categorie"] = target_cat
+                continue
 
-    return InternalResult.make_success(
-        data={"sessions_targets": cleaned_sessions},
-        source="SCN_3"
-    )
+            # Injecter le modèle trouvé
+            slot["modele"] = found.nom
+            slot["description"] = found.description
+            slot["categorie"] = found.categorie or found.cat_smartcoach
+            slot["duree"] = found.duree
+            slot["type_allure"] = found.cat_smartcoach
 
+    logger.info("[SCN_3] ✔ Terminé — modèles ajoutés aux sessions.")
+    return context

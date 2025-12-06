@@ -151,51 +151,60 @@ class ATFIELDS:
     # ⚠️ Ne pas redéclarer ENVIRONNEMENT ici
     # Utiliser ATFIELDS.ENVIRONNEMENT (déjà déclaré une seule fois)
 
-    # =================================================
-    # 📘 TABLE : SÉANCES TYPES
-    # =================================================
+    # ============================================================
+    # TABLE : SÉANCES TYPES  (Structure officielle SmartCoach 2025)
+    # ============================================================
 
-    STYPE_NOM = "Nom de la séance type"
-    STYPE_ID = "ID type (clé)"                        # clé métier
+    # ░░ Identification générale
+    STYPE_NOM = "Nom de la séance type"               # label métier
+    STYPE_ID = "ID type (clé)"                        # identifiant unique Airtable
+    STYPE_CLE_SEANCE = "Clé séance"                   # clé courte technique (ex: AS10_REC)
 
-    STYPE_CATEGORIE = "Catégorie"
-    STYPE_PHASE_CIBLE = "Phase cible"
+    # ░░ Classification / Filtrage
+    STYPE_MODE = "Mode"                               # Running / Vitalité / Kids / Hyrox
+    STYPE_PHASE_CIBLE = "Phase cible"                 # Base1 / Base2 / Progression / Affûtage / Course
+    STYPE_CATEGORIE = "Catégorie"                     # Endurance, VMA, Seuil, etc.
+    STYPE_CLE_TECHNIQUE = "Clé technique complète"    # clé métier (ex: "Affûtage-Seuil-T")
+    STYPE_CAT_SMARTCOACH = "🔑 Catégorie SmartCoach"   # mapping interne SC
 
-    STYPE_DUREE_MOY = "Durée moyenne (min)"
-    STYPE_TYPE_ALLURE = "Type d’allure"
+    # ░░ Paramètres athlète
+    STYPE_NIVEAU = "Niveau"                           # Débutant / Reprise / Confirmé
 
+    # ░░ Intensité & Durées
+    STYPE_DUREE = "Durée (min)"                       # durée totale (min)
+    STYPE_DUREE_MOY = "Durée moyenne (min)"           # parfois présent → alias
+    STYPE_REPETITIONS = "Répétitions"                 # nb reps si applicable
+    STYPE_RECUP = "Récupération (sec)"                # temps récup total/répétition
+
+    # ░░ Allures & VDOT
+    STYPE_TYPE_ALLURE = "Type d’allure"               # E / M / T / I / R
+    STYPE_TYPE_ALLURE_2 = "Type d’allure 2"           # champ secondaire
     STYPE_VDOT_MIN = "VDOT_min"
     STYPE_VDOT_MAX = "VDOT_max"
 
+    # ░░ Distances
     STYPE_DISTANCE_MOY = "Distance moyenne (km)"
-    STYPE_TYPE_SEANCE_COURT = "Type séance (court)"
 
-    STYPE_DESCRIPTION = "Description"
-    STYPE_DUREE = "Durée (min)"
-    STYPE_REPETITIONS = "Répétitions"
-    STYPE_RECUP = "Récupération (sec)"
+    # ░░ Description & affichage
+    STYPE_DESCRIPTION = "Description"                 # description texte coach
+    STYPE_CONSEIL_COACH = "Conseil du coach"          # phrase motivante
+    STYPE_VIDEO = "Vidéo / illustration"              # URL / fichier
+    STYPE_MATERIEL = "Matériel requis"                # Montre, dossard, rien…
+    STYPE_ENVIRONNEMENT = "Environnement conseillé"   # Piste / extérieur / parc…
 
-    STYPE_TYPE_ALLURE_2 = "Type d’allure"             # ✔️ doublon Airtable → on le garde mais tu pourras fusionner plus tard
+    # ░░ Fonctions avancées
+    STYPE_TYPE_SEANCE_COURT = "Type séance (court)"   # code abrégé
+    STYPE_FREQUENCE_CIBLE = "Fréquence cible"         # mapping fréquence/sem
+    STYPE_MAPPING_FREQUENCE = "Mapping Fréquence"     # table secondaire
 
-    STYPE_CHARGE_REF = "Charge de référence"
-    STYPE_MATERIEL = "Matériel requis"
-    STYPE_ENVIRONNEMENT = "Environnement conseillé"
+    # ░░ Modes optionnels
+    STYPE_KIDS = "Kids"                               # oui/non
+    STYPE_VITALITE = "Vitalité"                       # oui/non
+    STYPE_HYROX_DEKA = "Hyrox/DEKA"                   # oui/non
 
-    STYPE_VIDEO = "Vidéo / illustration"
-    STYPE_CONSEIL_COACH = "Conseil du coach"
-
-    STYPE_CATEGORIE_TYPE = "Catégorie / Type de séance"
-
-    STYPE_CLE_TECHNIQUE = "Clé technique complète"
-
-    STYPE_KIDS = "Kids"
-    STYPE_VITALITE = "Vitalité"
-    STYPE_HYROX_DEKA = "Hyrox/DEKA"
-
+    # ░░ Versionning
     STYPE_VERSION_MODELE = "Version modèle"
 
-    # ⚠️ Pour Environnement → utiliser ATFIELDS.ENVIRONNEMENT (non redéclaré ici)
-    # ATFIELDS.ENVIRONNEMENT
 
     # =================================================
     # ⚖️ TABLE : VDOT_REFERENCE
@@ -342,6 +351,32 @@ class ATFIELDS:
 
 
     # ⚠️ Comme toujours : ne pas redéclarer ENVIRONNEMENT ici.
+# ============================================================
+# Séances Types - Champs Airtable (namespace ST)
+# ============================================================
+
+class ST:
+    NOM = "Modèle"
+    CLE_SEANCE = "clé_séance"
+    CATEGORIE = "Catégorie"
+    TYPE_ALLURE = "Type allure"
+
+    MODE = "Mode"
+    PHASE_CIBLE = "Phase cible"
+    NIVEAUX = "Niveau"           # liste Airtable
+
+    DUREE = "Durée (min)"
+    DISTANCE_MOY = "Distance moyenne"
+
+    VDOT_MIN = "VDOT_min"
+    VDOT_MAX = "VDOT_max"
+
+    DESCRIPTION = "Description"
+    CONSEIL_COACH = "Conseil coach"
+
+    KIDS = "Kids"
+    VITALITE = "Vitalité"
+    HYROX = "Hyrox"
 
 # =====================================================
 # Utilitaires

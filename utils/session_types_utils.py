@@ -1,74 +1,127 @@
-from typing import Dict, Any, List
+# =====================================================================
+# utils/session_types_utils.py  (Version SmartCoach 2025 — STABLE)
+# =====================================================================
 
-# --------------------------------------------------
-# Mapping interne SmartCoach → Airtable
-# --------------------------------------------------
-TYPE_MAP = {
-    "E": "EF",
-    "I": "I",
-    "AS10": "AS10",
-    "AS21": "AS21",
-    "AS42": "AS42",
-    "SL": "SL",
-    "TECH": "TECH",
-    "SEU": "SEU",
-    "VMA": "VMA",
-    "R": "R",
-}
+from services.airtable_fields import ST
+from models.session_type import SessionType
+import logging
 
-def ensure_list(value) -> List:
-    if value is None:
+logger = logging.getLogger("SessionTypesUtils")
+
+
+# ---------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------
+
+def _g(fields: dict, key: str):
+    """Récupère un champ Airtable proprement."""
+    if not key or key not in fields:
+        return None
+    return fields.get(key)
+
+
+def _list(raw):
+    """Convertit un champ Airtable potentiellement liste en vraie liste."""
+    if raw is None:
         return []
-    if isinstance(value, list):
-        return value
-    if isinstance(value, str) and "," in value:
-        return [v.strip() for v in value.split(",")]
-    return [value]
+    if isinstance(raw, list):
+        return raw
+    return [raw]
 
 
-def map_record_to_session_type(record: Dict[str, Any]) -> Dict[str, Any]:
-    fields = record.get("fields", record)
+# ---------------------------------------------------------------------
+# Validation légère
+# ---------------------------------------------------------------------
 
-    session_id = fields.get("Clé séance") or fields.get("ID") or record.get("id")
-    nom = fields.get("Nom de la séance type") or fields.get("Nom") or "Séance"
-    univers = fields.get("Mode") or "Running"
+def validate_session_type(sess: SessionType):
+    """Vérifie les champs critiques d’une séance type."""
+    if not sess.nom:
+        logger.warning(f"[{sess.id}] ⚠️ Pas de nom → modèle inutilisable.")
 
-    phase_ids = ensure_list(fields.get("Phase cible"))
-    slot_types = ensure_list(fields.get("Type séance (court)"))
-    niveaux = ensure_list(fields.get("Niveau"))
+    if not sess.cle_seance:
+        logger.warning(f"[{sess.id}] ⚠️ Pas de clé_séance → tri impossible.")
 
-    duree = fields.get("Durée") or fields.get("Durée séance") or None
-    if isinstance(duree, str) and duree.isdigit():
-        duree = int(duree)
+    if sess.duree is None and sess.distance is None:
+        logger.warning(f"[{sess.id}] ⚠️ Ni durée ni distance → modèle incomplet.")
 
-    distance = fields.get("Distance", None)
-    objectifs = ensure_list(fields.get("Objectif"))
+    return sess
 
-    tags = []
-    for col in [
-        "Catégorie",
-        "Environnement conseillé",
-        "Matériel requis",
-        "Objectifs compatibles",
-    ]:
-        if fields.get(col):
-            tags.extend(ensure_list(fields[col]))
 
-    # --------------------------------------------------
-    # MAPPING DU TYPE → adaptation des clés SCN_3 → Airtable
-    # --------------------------------------------------
-    slot_types_mapped = [TYPE_MAP.get(t, t) for t in slot_types]
+# ---------------------------------------------------------------------
+# Mapping Airtable → SessionType (CORE SMARTCOACH)
+# ---------------------------------------------------------------------
 
-    return {
-        "session_type_id": session_id,
-        "nom": nom,
-        "univers": univers,
-        "phase_ids": phase_ids,
-        "slot_types": slot_types_mapped,
-        "niveaux": niveaux,
-        "duree": duree,
-        "distance": distance,
-        "objectifs": objectifs,
-        "tags": tags,
-        "raw": record,
-    }
+def map_record_to_session_type(record):
+    """Construit un modèle SessionType à partir d’un record Airtable."""
+
+    fields = record.get("fields", {})
+    sess = SessionType()
+
+    # -----------------------------
+    # Identification générale
+    # -----------------------------
+    sess.id = record.get("id")
+    sess.nom = _g(fields, ST.NOM)
+    sess.cle_seance = _g(fields, ST.CLE_SEANCE)
+
+    # -----------------------------
+    # Classification
+    # -----------------------------
+    sess.mode = _list(_g(fields, ST.MODE))              # Running / Vitalité / Kids / Hyrox
+    sess.phase_ids = _list(_g(fields, ST.PHASE_CIBLE))  # Phase 1 / Base / Prog...
+    sess.categorie = _g(fields, ST.CATEGORIE)           # Endurance / VMA / Seuil…
+    sess.cle_technique = _g(fields, ST.CLE_TECHNIQUE)   # Affutage-Seuil-T
+
+    # 🔑 Clé interne SmartCoach (EF, EA, AS10, ACT, OFF...)
+    sess.cat_smartcoach = _g(fields, ST.CAT_SMARTCOACH)
+
+    # -----------------------------
+    # Paramètres athlète
+    # -----------------------------
+    sess.niveau = _g(fields, ST.NIVEAU)
+
+    # -----------------------------
+    # Durées & intensité
+    # -----------------------------
+    sess.duree = _g(fields, ST.DUREE)
+    sess.duree_moy = _g(fields, ST.DUREE_MOY)
+    sess.repetitions = _g(fields, ST.REPETITIONS)
+    sess.recup = _g(fields, ST.RECUP)
+
+    # IMPORTANT :
+    # Distance n’existe pas dans Airtable → on normalise en None
+    sess.distance = None
+
+    # -----------------------------
+    # Allures & VDOT
+    # -----------------------------
+    sess.allure_cible = _g(fields, ST.ALLURE_CIBLE)
+    sess.vdot = _g(fields, ST.VDOT)
+
+    # Champs Kids / Vitalité / Hyrox
+    sess.kids_duree = _g(fields, ST.KIDS_DUREE)
+    sess.vitalite_duree = _g(fields, ST.VITALITE_DUREE)
+    sess.hyrox_station = _g(fields, ST.HYROX_STATION)
+
+    # -----------------------------
+    # Description & conseils
+    # -----------------------------
+    sess.description = _g(fields, ST.DESCRIPTION)
+    sess.conseil_coach = _g(fields, ST.CONSEIL_COACH)
+
+    # -----------------------------
+    # Champs nécessaires SCN_3 et SCN_6
+    # -----------------------------
+    # SCN_3 : filtrage univers / phase
+    sess.univers = _list(_g(fields, ST.MODE))
+
+    # SCN_6 : type_allure = clé SmartCoach
+    sess.type_allure = sess.cat_smartcoach
+
+    # Objectifs : pas dans Airtable Séances Types
+    sess.objectifs = []
+
+    # -----------------------------
+    # Validation
+    # -----------------------------
+    return validate_session_type(sess)

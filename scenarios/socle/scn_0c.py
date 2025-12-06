@@ -1,54 +1,36 @@
-import logging
-from core.utils.logger import log_info, log_debug
-from core.internal_result import InternalResult
+# ---------------------------------------------------------
+# SCN_0c – Calcul du niveau final + VDOT (from scratch)
+# ---------------------------------------------------------
 
-log = logging.getLogger("SCN_0c")
+from core.utils.logger import get_logger
 
-ORDERED_DAYS = [
-    "Lundi", "Mardi", "Mercredi", "Jeudi",
-    "Vendredi", "Samedi", "Dimanche"
-]
+log = get_logger("SCN_0c")
 
-def run_scn_0c(context, jours_final):
 
-    try:
-        objectif_norm = context.objectif_normalise
-        niveau_norm = context.niveau_normalise
-        cle_ref = context.cle_niveau_reference
+def run_scn_0c(context, data_0a: dict) -> dict:
+    """
+    Enrichit les données normalisées avec :
+      - niveau_final
+      - vdot (None pour l’instant, calcul ajouté plus tard)
+    data_0a = data renvoyée par SCN_0a["data"]
+    """
 
-        semaine_type = {
-            "jours": {},
-            "meta": {
-                "objectif": objectif_norm,
-                "niveau": niveau_norm,
-                "nb_jours": len(jours_final),
-                "cle_reference": cle_ref
-            }
-        }
+    mode = data_0a.get("mode")
+    objectif = data_0a.get("objectif")
+    niveau = data_0a.get("niveau") or "Débutant"
 
-        # Ordonnancement
-        jours_ordonnes = [j for j in ORDERED_DAYS if j in jours_final]
-        log.debug(f"Jours retenus (ordonnés) → {jours_ordonnes}", module="SCN_0c")
+    # Dans la V1 : on ne calcule PAS le VDOT ici (sera fait via référence VDOT plus tard)
+    vdot = None
 
-        if not jours_ordonnes:
-            return InternalResult.make_error(
-                "Erreur SCN_0c : aucun jour retenu après ordonnancement.",
-                source="SCN_0c"
-            )
+    out = {
+        "niveau_final": niveau,
+        "vdot": vdot,
+    }
 
-        # Mapping jour -> clé modèle
-        for jour in jours_ordonnes:
-            semaine_type["jours"][jour] = {
-                "cle_modele": cle_ref
-            }
+    log.info(f"SCN_0c → {out}")
 
-        log.info("SCN_0c → Semaine-type construite avec succès", module="SCN_0c")
-        log.debug(f"Semaine-type → {semaine_type}", module="SCN_0c")
-
-        return InternalResult.make_success(semaine_type)
-
-    except Exception as e:
-        return InternalResult.make_error(
-            f"Erreur interne SCN_0c : {e}",
-            source="SCN_0c"
-        )
+    return {
+        "status": "ok",
+        "message": "SCN_0c terminé",
+        "data": out
+    }

@@ -22,28 +22,6 @@ class AirtableService:
     # Cache simple en mémoire (clé = "record:<id>")
     _RECORD_CACHE = {}
 
-    def get_record(self, record_id: str):
-        """
-        Lecture rapide d'un record Airtable :
-        - 1ère lecture → API Airtable
-        - lectures suivantes → cache mémoire (0 ms)
-
-        100% compatible SCN_1.
-        """
-        cache_key = f"record:{record_id}"
-
-        # Accès correct à l’attribut de classe
-        if cache_key in self._RECORD_CACHE:
-            return self._RECORD_CACHE[cache_key]
-
-        # Lecture réelle Airtable
-        record = self.get(record_id)
-
-        # Mise en cache
-        self._RECORD_CACHE[cache_key] = record
-
-        return record
- 
     def iterate_records(self):
         """Retourne tous les enregistrements de la table avec pagination."""
         if not self.table_id:
@@ -74,17 +52,6 @@ class AirtableService:
         self.api_key = os.getenv("AIRTABLE_API_KEY")
         self.base_id = os.getenv("AIRTABLE_BASE_ID")
 
-        if not self.api_key or not self.base_id:
-            log_error("Clés Airtable manquantes (API KEY ou BASE ID).",
-                      module="AirtableService")
-            raise ValueError("Configuration Airtable incomplète.")
-
-        # 👟 Table par défaut : Coureurs
-        self.table_name = ATABLES.COU_TABLE  # ← ID de la table Coureurs
-        self.table = Table(self.api_key, self.base_id, ATABLES.COU_TABLE)
-
-        log_info(f"AirtableService → connecté à la table '{self.table_name}'",
-                 module="AirtableService")
     # -------------------------------
     # Lecture simple d’un record
     # -------------------------------
@@ -173,3 +140,34 @@ class AirtableService:
         """
         self.set_table(ATABLES.SEANCES_TYPES)
         return self.get_all_records()
+    
+    # ---------------------------------------------------------
+    #   Lecture d’un record dans une table donnée.
+    #    Compatible SCN_1 / RCTC v2025-12.
+    #    Utilise un cache mémoire interne pour les accès répétés.
+    # ---------------------------------------------------------
+    def get_record(self, table_id: str, record_id: str):
+
+        cache_key = f"{table_id}:{record_id}"
+
+        # 1) Retour immédiat si déjà en cache
+        if cache_key in self._RECORD_CACHE:
+            return self._RECORD_CACHE[cache_key]
+
+        # 2) Sélection dynamique de la table
+        self.set_table(table_id)
+
+        try:
+            record = self.table.get(record_id)
+
+            # 3) Mise en cache
+            self._RECORD_CACHE[cache_key] = record
+
+            return record
+
+        except Exception as e:
+            log_error(
+                f"[AirtableService] Erreur get_record sur {table_id}/{record_id} : {e}",
+                module="AirtableService"
+            )
+            return None

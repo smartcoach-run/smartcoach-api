@@ -393,26 +393,25 @@ def fetch_seances_types() -> list:
     log_info(f"STEP6 → {len(records)} séances types chargées", module="SCN_1")
     return records
 
+def select_model(models, phases, univers="Running"):
 
-def select_model_for_slot(slot: dict, week_phase: str, vdot: int, seances_types: list):
     candidates = []
-    for rec in seances_types:
-        f = rec["fields"]
 
-        # Phase
-        if f.get("Phase cible") != week_phase:
+    for m in models:
+
+        # 1) Univers
+        univers_list = m.univers or []
+        if univers not in univers_list:
             continue
 
-        # VDOT
-        v_min = f.get("VDOT_min")
-        v_max = f.get("VDOT_max")
-        if (v_min is not None and vdot < v_min) or (v_max is not None and vdot > v_max):
+        # 2) Phase
+        phase_ids = m.phase_ids or []
+        if not any(p in phase_ids for p in phases):
             continue
 
-        candidates.append(f)
+        candidates.append(m)
 
     return candidates[0] if candidates else None
-
 
 def apply_models_to_weeks(weeks: list, vdot: Optional[int] = None):
 
