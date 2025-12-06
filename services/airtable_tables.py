@@ -6,6 +6,8 @@
 
 class ATABLES:
 # 🔢 Référentiels    
+    #Slots
+    SLOTS_TABLE="tbl50SWNY6nCXtg46"
     # 🏃‍♂️ Coureurs
     COU_TABLE = "tblQy4XAFGgL3QPsk"
     #⚖️ Référence Jours
