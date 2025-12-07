@@ -1,13 +1,6 @@
 fastapi
-
-itertools
-
-pydantic
-python-dotenv
-pyairtable
-
+uvicorn[standard]
 requests
-
-typing
-
-uvicorn
+python-dotenv
+pydantic
+pyairtable
