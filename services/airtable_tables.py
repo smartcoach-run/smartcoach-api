@@ -1,34 +1,63 @@
 # services/airtable_tables.py
 # =====================================================
-# Référentiel CENTRALISÉ des noms de tables Airtable
-# Source unique de vérité pour tout SmartCoach
+# Référentiel Airtable COMPATIBLE V1 + V2 (multi-env)
 # =====================================================
 
+import os
+from core.config import config
+
+
 class ATABLES:
-# 🔢 Référentiels    
-    #Slots
-    SLOTS_TABLE="tbl50SWNY6nCXtg46"
+
+    # Environnement actif : DEV ou PROD
+    ENV = config.env.upper()
+
+    # ======================================================
+    # 🌍 TABLES AVEC ID VARIABLES (DEV / PROD)
+    # ======================================================
+
     # 🏃‍♂️ Coureurs
-    COU_TABLE = "tblQy4XAFGgL3QPsk"
-    #⚖️ Référence Jours
-    REF_JOURS = "tblQYHeWm8zPM7uv3"
-    #📐 VDOT_reference
-    VDOT = "tblLAXCVcywD67lbZ"
-    #📘 Séances types
-    SEANCES_TYPES = "tbl1QZB7EDvxZ9EEt"
-    #🏋️Séances
-    SEANCES = "tblvFnCRyJVcMitI9"
-    # 🛣️ Mapping Phase (Running)
-    MAPPING_PHASES = "tblkO4XfXLd6xe9gY"    
-    #🎛️ Référentiel Catégories Séances
-    REF_CATEGORIES_SEANCES= "tbllVRZLXwsAOXvUw"
-    #📘 Référentiel Niveaux
-    REF_NIVEAUX ="tblvTVYo7uDI8Qhb3"
+    COU_TABLE_ID = os.getenv(f"AIRTABLE_COU_TABLE_{ENV}")
 
-# 💬 Communication & Contenu
-    #📋 Suivi génération
-    SUIVI = "tblZX0WddUYaIeBC9"
+    # 🏋️ Séances
+    SEANCES_TABLE_ID = os.getenv(f"AIRTABLE_SEANCES_TABLE_{ENV}")
 
-# 📬 Automatisations & Messages    
-    #📩 Messages Hebdo
-    MSGS = "tblRiRRtz3HlYJThZ"
+    # 📘 Séances Types
+    SEANCES_TYPES_ID = os.getenv(f"AIRTABLE_SEANCES_TYPES_{ENV}")
+
+    # 📐 VDOT reference
+    VDOT_TABLE_ID = os.getenv(f"AIRTABLE_VDOT_TABLE_{ENV}")
+
+    # ⚖️ Référence Jours
+    REF_JOURS_ID = os.getenv(f"AIRTABLE_REF_JOURS_{ENV}")
+
+    # 🛣️ Mapping Phase
+    MAPPING_PHASES_ID = os.getenv(f"AIRTABLE_MAPPING_PHASES_{ENV}")
+
+    # 🎛️ Référentiel Catégories Séances
+    REF_CATEGORIES_SEANCES_ID = os.getenv(f"AIRTABLE_REF_CATEGORIES_SEANCES_{ENV}")
+
+    # 📘 Référentiel Niveaux
+    REF_NIVEAUX_ID = os.getenv(f"AIRTABLE_REF_NIVEAUX_{ENV}")
+
+
+    # ======================================================
+    # 📌 TABLES À ID FIXE
+    # ======================================================
+    SUIVI_TABLE_ID = "tblZX0WddUYaIeBC9"
+    MSGS_TABLE_ID = "tblRiRRtz3HlYJThZ"
+
+
+    # ======================================================
+    # 🧩 BACKWARD COMPATIBILITÉ V1 (pour SCN_1/2/3 existants)
+    # ======================================================
+
+    # Les anciens noms utilisés partout dans ton code :
+    COU_TABLE = COU_TABLE_ID
+    SEANCES = SEANCES_TABLE_ID
+    SEANCES_TYPES = SEANCES_TYPES_ID
+    VDOT = VDOT_TABLE_ID
+    REF_JOURS = REF_JOURS_ID
+    MAPPING_PHASES = MAPPING_PHASES_ID
+    REF_CATEGORIES_SEANCES = REF_CATEGORIES_SEANCES_ID
+    REF_NIVEAUX = REF_NIVEAUX_ID

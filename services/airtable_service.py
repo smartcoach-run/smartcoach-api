@@ -9,9 +9,25 @@ from services.airtable_tables import ATABLES
 
 # 👉 On utilise UNIQUEMENT ce référentiel (IDs Airtable)
 from services.airtable_tables import ATABLES
-
+from core.config import config  # AJOUT
 
 class AirtableService:
+    def __init__(self):
+        from core.config import config
+        
+        self.api_key = config.api_key      # ✔ bon nom
+        self.base_id = config.base_id      # ✔ bon nom
+        self.env = config.env              # facultatif mais utile
+
+        if not self.api_key:
+            raise RuntimeError("API KEY is missing")
+
+        if not self.base_id:
+            raise RuntimeError(f"BASE_ID is missing for ENV={config.env}")
+
+        self.table = None
+        self.table_name = None
+
     """
     Service Airtable centralisé — lecture simple v1.
     """
@@ -45,12 +61,6 @@ class AirtableService:
             params["offset"] = offset
 
         return all_records
-
-
-    def __init__(self):
-        # 🔐 Variables d’environnement (OK)
-        self.api_key = os.getenv("AIRTABLE_API_KEY")
-        self.base_id = os.getenv("AIRTABLE_BASE_ID")
 
     # -------------------------------
     # Lecture simple d’un record
