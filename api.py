@@ -67,28 +67,31 @@ async def generate_by_id(body: GenerateRequest):
 #      ROUTE SPÉCIALE : /generate_sessions
 # =====================================================
 
-@app.post("/generate_sessions")
-def generate_sessions(payload: dict):
-    from scenarios.agregateur.scn_6 import run_scn_6
+@app.post("/generate_session")
+async def generate_session(body: GenerateRequest):
+    """
+    Endpoint dédié Step6 OnDemand.
+    - scenario doit être "SCN_6" (ou on impose SCN_6 en dur).
+    - record_id = coureur Airtable
+    - payload.slot_id = identifiant du slot à générer
+    """
 
-    context = SmartCoachContext(
-        scenario="SCN_6",
-        record_id=payload.get("record_id", "")
-    )
+    logger.info(f"API → generate_session (SCN_6) pour record_id={body.record_id}")
 
-    if "week_structure" in payload:
-        context.week_structure = payload["week_structure"]
-    if "slots" in payload:
-        context.slots = payload["slots"]
-    if "phases" in payload:
-        context.phases = payload["phases"]
-    if "objectif_normalise" in payload:
-        context.objectif_normalise = payload["objectif_normalise"]
+    try:
+        # On force le scénario à SCN_6 pour éviter les erreurs de saisie
+        result = dispatch_scenario(
+            scn_name="SCN_6",
+            record_id=body.record_id,
+            payload=body.payload or {}
+        )
 
-    result = run_scn_6(context)
-    return {
-        "status": result.status,
-        "message": result.message,
-        "data": result.data,
-        "source": result.source,
-    }
+        return {
+            "status": "ok",
+            "message": "SCN_6 terminé avec succès (Step6 OnDemand)",
+            "data": result
+        }
+
+    except Exception as e:
+        logger.exception(f"Erreur dans generate_session : {e}")
+        raise HTTPException(status_code=500, detail=str(e))

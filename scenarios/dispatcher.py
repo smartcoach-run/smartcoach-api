@@ -1,10 +1,16 @@
-# scenarios/dispatcher.py
+# ==========================================================
+# DISPATCHER — Version corrigée (2025-12-08)
+# Compatible avec SCN_1 / SCN_2 / SCN_6 dans scenarios/agregateur
+# ==========================================================
 
 from core.utils.logger import log_info
 from core.internal_result import InternalResult
+
+# ➜ Tous tes scénarios fonctionnels sont bien dans agregateur
 from scenarios.agregateur.scn_1 import run_scn_1
 from scenarios.agregateur.scn_2 import run_scn_2
-# (si besoin : SCN_3, SCN_6, etc.)
+from scenarios.agregateur.scn_6 import run_scn_6
+
 
 class SmartCoachContext:
     def __init__(self, scenario, record_id, payload):
@@ -12,49 +18,66 @@ class SmartCoachContext:
         self.record_id = record_id
         self.payload = payload or {}
 
+
 def dispatch_scenario(scn_name: str, record_id: str, payload: dict = None):
+    """
+    Router principal qui appelle le bon scénario SmartCoach.
+    """
     log_info(f"Dispatcher → Scénario demandé : {scn_name}")
 
-    # 1) Construire le contexte complet
+    # Construction d’un contexte standard
     context = SmartCoachContext(
         scenario=scn_name,
         record_id=record_id,
         payload=payload or {}
     )
 
-    # SCN_1 → Normalisation + métadonnées
+    # ======================================================
+    # SCN_1 — Génération du plan (structure)
+    # ======================================================
     if scn_name == "SCN_1":
         return run_scn_1(context)
 
     # ======================================================
-    # SCN_2 = Construction des slots
-    # NE PEUT PAS être appelé sans data_scn1
+    # SCN_2 — Slots + intentions
+    # Nécessite data_scn1 (sinon SCN_1 est exécuté automatiquement)
     # ======================================================
     if scn_name == "SCN_2":
 
-        # Récupération éventuelle envoyée par Make / API
+        # Make peut envoyer data_scn1
         data_scn1 = context.payload.get("data_scn1")
 
+        # Si absent : exécuter SCN_1 immédiatement
         if not data_scn1:
-            # 👉 SCN_1 doit être exécuté automatiquement
             norm_res = run_scn_1(context)
 
             if norm_res.status != "ok":
                 return norm_res
 
-            # On injecte SEULEMENT les données utiles → norm_res.data
             data_scn1 = norm_res.data
 
-        # Maintenant data_scn1 est garanti OK
+        # Appel SCN_2 avec data_scn1 en entrée
         return run_scn_2(context, data_scn1)
 
     # ======================================================
+    # SCN_3 — Non implémenté
+    # ======================================================
     if scn_name == "SCN_3":
-        raise ValueError("SCN_3 non encore implémenté")
-
-    if scn_name == "SCN_6":
-        raise ValueError("SCN_6 non encore implémenté")
+        return InternalResult.error(
+            message="SCN_3 non encore implémenté",
+            source="dispatcher"
+        )
 
     # ======================================================
-    raise ValueError(f"Scénario inconnu : {scn_name}")
+    # SCN_6 — Step6 OnDemand : génération d’une séance
+    # ======================================================
+    if scn_name == "SCN_6":
+        return run_scn_6(context)
 
+    # ======================================================
+    # Aucun scénario correspondant → erreur
+    # ======================================================
+    return InternalResult.error(
+        message=f"Scénario inconnu : {scn_name}",
+        source="dispatcher"
+    )

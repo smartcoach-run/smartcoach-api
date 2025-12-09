@@ -1,2 +1,407 @@
 # scenarios/scn_0g.py
-# SCN_0g — Génération d’une séance OnDemand
+# SCN_0g — Génération d’une séance OnDemand (SOCLE v2025-12 complet, env-aware)
+
+import logging
+import os
+import requests
+
+from core.utils.logger import log_info, log_error
+from core.internal_result import InternalResult
+
+logger = logging.getLogger("SCN_0g")
+
+# ==========================================================
+#  Sélection d'environnement (DEV / PROD)
+# ==========================================================
+
+ENV_MODE = os.getenv("ENV_MODE", "dev").lower()  # "dev" ou "prod"
+
+def _select_env_var(base_name: str) -> str | None:
+    """
+    Retourne la bonne variable en fonction de ENV_MODE.
+    Exemple : base_name="AIRTABLE_BASE_ID" →
+      - ENV_MODE=dev  → AIRTABLE_BASE_ID_DEV
+      - ENV_MODE=prod → AIRTABLE_BASE_ID_PROD
+    """
+    suffix = "_DEV" if ENV_MODE == "dev" else "_PROD"
+    full_name = f"{base_name}{suffix}"
+    return os.getenv(full_name)
+
+
+# ==========================================================
+#  Configuration Airtable (normalisée)
+# ==========================================================
+
+AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
+AIRTABLE_BASE_ID = _select_env_var("AIRTABLE_BASE_ID")
+
+TABLE_COU = _select_env_var("AIRTABLE_COU_TABLE")          # 👟 Coureurs
+TABLE_SLOTS = _select_env_var("AIRTABLE_SLOTS_TABLE")      # 🧩 Slots
+TABLE_TYPES = _select_env_var("AIRTABLE_SEANCES_TYPES")    # 📘 Séances types
+
+
+# ==========================================================
+#  Helpers Airtable
+# ==========================================================
+
+def _airtable_get(table_id: str, record_id: str | None = None, formula: str | None = None):
+    if not AIRTABLE_API_KEY or not AIRTABLE_BASE_ID or not table_id:
+        raise RuntimeError("Configuration Airtable manquante pour SCN_0g")
+
+    base_url = f"https://api.airtable.com/v0/{AIRTABLE_BASE_ID}/{table_id}"
+
+    headers = {
+        "Authorization": f"Bearer {AIRTABLE_API_KEY}",
+    }
+
+    if record_id:
+        resp = requests.get(f"{base_url}/{record_id}", headers=headers)
+        resp.raise_for_status()
+        return resp.json()
+
+    params = {}
+    if formula:
+        params["filterByFormula"] = formula
+
+    resp = requests.get(base_url, headers=headers, params=params)
+    resp.raise_for_status()
+    return resp.json()
+
+
+# ==========================================================
+#  Entrée principale SCN_0g
+# ==========================================================
+
+def run_scn_0g(context):
+    """
+    Inputs attendus dans context.payload :
+        - slot_id (obligatoire)
+        - record_id (obligatoire)
+        - feedback (optionnel)
+    """
+
+    payload = context.payload or {}
+
+    slot_id = payload.get("slot_id")
+    record_id = payload.get("record_id")
+    feedback = payload.get("feedback")
+
+    if not slot_id or not record_id:
+        return InternalResult.error(
+            message="slot_id et record_id sont obligatoires pour SCN_0g",
+            source="SCN_0g",
+            data=payload,
+        )
+
+    try:
+        log_info(f"[SCN_0g] ▶ Génération séance OnDemand pour slot {slot_id} (record {record_id}) [ENV={ENV_MODE}]")
+
+        # ------------------------------------------------------
+        # 1) Charger le coureur (👟 Coureurs)
+        # ------------------------------------------------------
+        runner = _load_runner(record_id)
+        mode = runner.get("mode")
+        vdot = runner.get("vdot")
+        niveau = runner.get("niveau")
+        objectif = runner.get("objectif")
+
+        # ------------------------------------------------------
+        # 2) Charger le slot (🧩 Slots)
+        # ------------------------------------------------------
+        slot = _load_slot(slot_id)
+        phase = slot.get("phase")
+        semaine = slot.get("semaine")
+        jour = slot.get("jour")
+        type_slot = slot.get("categorie") or "EF"
+
+        # ------------------------------------------------------
+        # 3) Trouver le modèle de séance (📘 Séances types)
+        # ------------------------------------------------------
+        model = _find_model(runner, slot)
+
+        # Si rien trouvé → Safe Mode EF 25'
+        if model is None:
+            log_info("[SCN_0g] Aucun modèle trouvé, activation du Safe Mode")
+            return _safe_mode({
+                "slot_id": slot_id,
+                "phase": phase,
+                "semaine": semaine,
+                "jour": jour,
+                "vdot": vdot,
+                "mode": mode,
+            })
+
+        # ------------------------------------------------------
+        # 4) Adapter le modèle
+        # ------------------------------------------------------
+        adapted = _adapt_model(model, runner, slot, feedback)
+
+        # ------------------------------------------------------
+        # 5) Construire JSON final
+        # ------------------------------------------------------
+        result = {
+            "slot_id": slot_id,
+            "type": type_slot,
+            "duree": adapted["duree_min"],
+            "distance": adapted.get("distance_km"),
+            "intensite": adapted.get("intensite"),
+            "phase": phase,
+            "semaine": semaine,
+            "jour": jour,
+            "description": adapted["description"],
+            "conseils": adapted.get("conseils"),
+            "vdot_used": vdot,
+            "mode": mode,
+            "modele_cle": adapted.get("modele_cle"),
+        }
+
+        return InternalResult.ok(
+            message="SCN_0g terminé (séance générée)",
+            data=result,
+            source="SCN_0g",
+        )
+
+    except Exception as e:
+        log_error(f"[SCN_0g] ERREUR : {e}")
+        return InternalResult.error(
+            message=f"Erreur SCN_0g : {e}",
+            source="SCN_0g",
+            data={"slot_id": slot_id, "record_id": record_id},
+        )
+
+
+# ==========================================================
+# SAFE MODE (RG-09)
+# ==========================================================
+
+def _safe_mode(session_info: dict) -> InternalResult:
+    """
+    EF 25' universelle.
+    """
+    return InternalResult.ok(
+        message="SCN_0g → Safe Mode activé",
+        source="SCN_0g",
+        data={
+            "slot_id": session_info["slot_id"],
+            "type": "EF",
+            "duree": 25,
+            "distance": 3.5,
+            "intensite": "basse",
+            "phase": session_info["phase"],
+            "semaine": session_info["semaine"],
+            "jour": session_info["jour"],
+            "description": "Endurance fondamentale douce, aisée, relâchée.",
+            "conseils": "Respire, reste facile, relâche tes épaules.",
+            "vdot_used": session_info["vdot"],
+            "mode": session_info["mode"],
+            "modele_cle": "SAFE_EF_25",
+        },
+    )
+
+
+# ==========================================================
+#  DRIVERS SOCLE — Airtable
+# ==========================================================
+
+def _load_runner(record_id: str) -> dict:
+    """
+    Charge le coureur depuis 👟 Coureurs.
+    Champs utilisés :
+      - Mode
+      - Niveau_normalisé
+      - Objectif_normalisé
+      - VDOT
+    """
+    res = _airtable_get(TABLE_COU, record_id=record_id)
+    fields = res.get("fields", {})
+
+    runner = {
+        "id": record_id,
+        "mode": fields.get("Mode"),
+        "niveau": fields.get("Niveau_normalisé"),
+        "objectif": fields.get("Objectif_normalisé"),
+        "vdot": fields.get("VDOT"),
+    }
+
+    log_info(f"[SCN_0g] Runner chargé : {runner}")
+    return runner
+
+
+def _load_slot(slot_id: str) -> dict:
+    """
+    Charge un slot depuis 🧩 Slots à partir de Slot_ID.
+    Champs utilisés :
+      - Slot_ID
+      - Jour_nom
+      - Date_slot
+      - Semaine_num
+      - Phase
+      - Type_cible (Catégorie_moteur côté moteur)
+    """
+    formula = f"{{Slot_ID}} = '{slot_id}'"
+    res = _airtable_get(TABLE_SLOTS, formula=formula)
+    records = res.get("records", [])
+
+    if not records:
+        raise ValueError(f"Slot introuvable dans Airtable : {slot_id}")
+
+    f = records[0]["fields"]
+
+    slot = {
+        "id": slot_id,
+        "jour": f.get("Jour_nom"),
+        "date": f.get("Date_slot"),
+        "semaine": f.get("Semaine_num"),
+        "phase": f.get("Phase"),
+        "categorie": f.get("Type_cible"),  # = Catégorie_moteur
+        "plan_id": f.get("Plan_ID"),
+    }
+
+    log_info(f"[SCN_0g] Slot chargé : {slot}")
+    return slot
+
+
+def _load_seances_types(filters: dict) -> list[dict]:
+    """
+    Charge les séances types depuis 📘 Séances types
+    avec un filterByFormula dynamique.
+    Filters peut contenir :
+      - Mode
+      - Catégorie_moteur
+      - Phase cible
+      - Objectif
+      - Niveau
+    """
+    clauses = []
+    for key, value in filters.items():
+        if value is not None:
+            clauses.append(f"{{{key}}} = '{value}'")
+
+    if not clauses:
+        formula = None
+    else:
+        formula = "AND(" + ",".join(clauses) + ")"
+
+    res = _airtable_get(TABLE_TYPES, formula=formula)
+    records = res.get("records", [])
+    return [r.get("fields", {}) for r in records]
+
+
+def _find_model(runner: dict, slot: dict) -> dict | None:
+    """
+    Trouve le meilleur modèle en appliquant des filtres successifs :
+      1) Mode + Catégorie_moteur + Phase + Objectif + Niveau
+      2) Relax Niveau
+      3) Relax Objectif
+      4) Relax Phase
+      5) Safe mode (None, géré en amont)
+    """
+
+    base_filters = {
+        "Mode": runner.get("mode"),
+        "Catégorie_moteur": slot.get("categorie"),
+        "Phase cible": slot.get("phase"),
+        "Objectif": runner.get("objectif"),
+        "Niveau": runner.get("niveau"),
+    }
+
+    # 1) Filtre strict
+    records = _load_seances_types(base_filters)
+    if records:
+        log_info("[SCN_0g] Modèle trouvé (filtre strict)")
+        return records[0]
+
+    # 2) Relax Niveau
+    f2 = base_filters.copy()
+    f2.pop("Niveau", None)
+    records = _load_seances_types(f2)
+    if records:
+        log_info("[SCN_0g] Modèle trouvé (sans Niveau)")
+        return records[0]
+
+    # 3) Relax Objectif
+    f3 = f2.copy()
+    f3.pop("Objectif", None)
+    records = _load_seances_types(f3)
+    if records:
+        log_info("[SCN_0g] Modèle trouvé (sans Objectif)")
+        return records[0]
+
+    # 4) Relax Phase
+    f4 = f3.copy()
+    f4.pop("Phase cible", None)
+    records = _load_seances_types(f4)
+    if records:
+        log_info("[SCN_0g] Modèle trouvé (sans Phase)")
+        return records[0]
+
+    # 5) Aucun modèle
+    log_info("[SCN_0g] Aucun modèle de séance trouvé (tous filtres)")
+    return None
+
+
+def _adapt_model(model: dict, runner: dict, slot: dict, feedback: dict | None = None) -> dict:
+    """
+    Adapte le modèle aux caractéristiques du coureur (VDOT, phase…)
+    Retourne un dict :
+      - duree_min
+      - description
+      - distance_km (optionnel)
+      - intensite (optionnel)
+      - conseils (optionnel)
+      - modele_cle
+    """
+
+    duree = model.get("Durée (min)", 30)
+    try:
+        duree = int(duree)
+    except Exception:
+        duree = 30
+
+    vdot = runner.get("vdot")
+    vdot_min = model.get("VDOT_min")
+    vdot_max = model.get("VDOT_max")
+
+    # Ajustement simple selon VDOT (si bornes renseignées)
+    if isinstance(vdot, (int, float)):
+        if vdot_max and vdot > vdot_max:
+            duree = int(duree * 1.05)
+        elif vdot_min and vdot < vdot_min:
+            duree = int(duree * 0.9)
+
+    # Ajustement selon la phase
+    phase = slot.get("phase")
+    if phase == "Peak":
+        duree = int(duree * 1.1)
+    elif phase in ("Affûtage", "Affutage"):
+        duree = int(duree * 0.85)
+
+    # Distance approximative (EF ~ 9 km/h, sinon neutre)
+    categorie = slot.get("categorie") or model.get("Catégorie_moteur")
+    distance_km = None
+    if categorie == "EF":
+        distance_km = round(duree * 9 / 60, 1)
+
+    # Intensité simple
+    if categorie == "EF":
+        intensite = "basse"
+    elif categorie in ("SL",):
+        intensite = "modérée"
+    elif categorie in ("T", "I", "R"):
+        intensite = "élevée"
+    else:
+        intensite = None
+
+    description = model.get("Description") or "Séance structurée selon ton plan."
+    conseils = model.get("Conseils") if "Conseils" in model else None
+
+    _ = feedback  # réservé pour la v2
+
+    return {
+        "duree_min": duree,
+        "distance_km": distance_km,
+        "intensite": intensite,
+        "description": description,
+        "conseils": conseils,
+        "modele_cle": model.get("Clé séance"),
+    }
