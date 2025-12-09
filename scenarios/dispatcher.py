@@ -3,6 +3,7 @@
 # Compatible avec SCN_1 / SCN_2 / SCN_6 dans scenarios/agregateur
 # ==========================================================
 
+import logging
 from core.utils.logger import log_info
 from core.internal_result import InternalResult
 
@@ -11,6 +12,7 @@ from scenarios.agregateur.scn_1 import run_scn_1
 from scenarios.agregateur.scn_2 import run_scn_2
 from scenarios.agregateur.scn_6 import run_scn_6
 
+logger = logging.getLogger("Dispatcher")
 
 class SmartCoachContext:
     def __init__(self, scenario, record_id, payload):
@@ -67,6 +69,10 @@ def dispatch_scenario(scn_name: str, record_id: str, payload: dict = None):
             message="SCN_3 non encore implémenté",
             source="dispatcher"
         )
+
+    logger.info(f"[DISPATCH] Lancement scénario {scn_name}")
+    logger.info(f"[DEBUG] DISPATCH INPUT record_id={record_id}")
+    logger.info(f"[DEBUG] DISPATCH INPUT payload={payload}")
 
     # ======================================================
     # SCN_6 — Step6 OnDemand : génération d’une séance

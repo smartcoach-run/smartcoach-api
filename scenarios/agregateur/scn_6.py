@@ -1,13 +1,25 @@
+import logging
 from scenarios.socle.scn_0g import run_scn_0g
+from core.utils.logger import log_info
 from core.internal_result import InternalResult
 
+logger = logging.getLogger("SCN_6")
+
 def run_scn_6(context):
+    logger.info("[DEBUG SCN_6] run_scn_6 lancé")
+    logger.info(f"[DEBUG SCN_6] context.record_id={context.record_id}")
+    logger.info(f"[DEBUG SCN_6] context.payload={getattr(context, 'payload', None)}")
+
     """
     SCN_6 = Step6 OnDemand
     Génère la séance complète pour un slot donné.
     """
-    slot_id = context.payload.get("slot_id")
-    record_id = context.record_id
+
+    # 🔧 FIX : on récupère enfin correctement le payload
+    payload = context.payload
+
+    slot_id = payload.get("slot_id")
+    record_id = payload.get("record_id") or context.record_id
 
     if not slot_id:
         return InternalResult.error(
@@ -21,8 +33,7 @@ def run_scn_6(context):
             source="SCN_6"
         )
 
-    # ---- PATCH CRUCIAL ----
-    # On transmet correctement les inputs attendus par SCN_0g
+    # ---- Transmission à SCN_0g ----
     inner_context = type("InnerContext", (), {})()
     inner_context.payload = {
         "slot_id": slot_id,

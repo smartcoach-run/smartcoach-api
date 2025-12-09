@@ -42,8 +42,18 @@ def health():
 # =====================================================
 
 @app.post("/generate_by_id")
-async def generate_by_id(body: GenerateRequest):
+async def generate(payload: dict):
+    scenario = payload.get("scenario")
+    record_id = payload.get("record_id")
+
+    # ✅ transmettre le payload complet !
+    return dispatch_scenario(scenario, record_id, payload)
+
     logger.info(f"API → Requête reçue ({body.scenario})")
+
+    # 🔥 AJOUT DEBUG ICI
+    logger.info(f"[DEBUG] API INPUT record_id={body.record_id}")
+    logger.info(f"[DEBUG] API INPUT payload={body.payload}")
 
     try:
         result = dispatch_scenario(
