@@ -4,8 +4,12 @@
 import logging
 import os
 import requests
+import traceback
 
 from core.utils.logger import log_info, log_error
+from core.internal_result import InternalResult
+
+from core.utils.logger import root_logger as logger
 from core.internal_result import InternalResult
 
 logger = logging.getLogger("SCN_0g")
@@ -71,104 +75,45 @@ def _airtable_get(table_id: str, record_id: str | None = None, formula: str | No
 # ==========================================================
 #  Entrée principale SCN_0g
 # ==========================================================
-
 def run_scn_0g(context):
     """
-    Inputs attendus dans context.payload :
-        - slot_id (obligatoire)
-        - record_id (obligatoire)
-        - feedback (optionnel)
+    SOCLE : SCN_0g
+    Validation du slot et du record_id pour la suite du moteur
     """
-
-    payload = context.payload or {}
-
-    slot_id = payload.get("slot_id")
-    record_id = payload.get("record_id")
-    feedback = payload.get("feedback")
-
-    if not slot_id or not record_id:
-        return InternalResult.error(
-            message="slot_id et record_id sont obligatoires pour SCN_0g",
-            source="SCN_0g",
-            data=payload,
-        )
-
     try:
-        log_info(f"[SCN_0g] ▶ Génération séance OnDemand pour slot {slot_id} (record {record_id}) [ENV={ENV_MODE}]")
+        payload = getattr(context, "payload", {}) or {}
 
-        # ------------------------------------------------------
-        # 1) Charger le coureur (👟 Coureurs)
-        # ------------------------------------------------------
-        runner = _load_runner(record_id)
-        mode = runner.get("mode")
-        vdot = runner.get("vdot")
-        niveau = runner.get("niveau")
-        objectif = runner.get("objectif")
+        logger.info(f"[SCN_0g] payload reçu = {payload}")
+        logger.info(f"[SCN_0g] keys = {list(payload.keys())}")
 
-        # ------------------------------------------------------
-        # 2) Charger le slot (🧩 Slots)
-        # ------------------------------------------------------
-        slot = _load_slot(slot_id)
-        phase = slot.get("phase")
-        semaine = slot.get("semaine")
-        jour = slot.get("jour")
-        type_slot = slot.get("categorie") or "EF"
+        slot_id = payload.get("slot_id")
+        record_id = payload.get("record_id")
 
-        # ------------------------------------------------------
-        # 3) Trouver le modèle de séance (📘 Séances types)
-        # ------------------------------------------------------
-        model = _find_model(runner, slot)
+        logger.info(f"[SCN_0g] slot_id={slot_id}, record_id={record_id}")
 
-        # Si rien trouvé → Safe Mode EF 25'
-        if model is None:
-            log_info("[SCN_0g] Aucun modèle trouvé, activation du Safe Mode")
-            return _safe_mode({
-                "slot_id": slot_id,
-                "phase": phase,
-                "semaine": semaine,
-                "jour": jour,
-                "vdot": vdot,
-                "mode": mode,
-            })
-
-        # ------------------------------------------------------
-        # 4) Adapter le modèle
-        # ------------------------------------------------------
-        adapted = _adapt_model(model, runner, slot, feedback)
-
-        # ------------------------------------------------------
-        # 5) Construire JSON final
-        # ------------------------------------------------------
-        result = {
-            "slot_id": slot_id,
-            "type": type_slot,
-            "duree": adapted["duree_min"],
-            "distance": adapted.get("distance_km"),
-            "intensite": adapted.get("intensite"),
-            "phase": phase,
-            "semaine": semaine,
-            "jour": jour,
-            "description": adapted["description"],
-            "conseils": adapted.get("conseils"),
-            "vdot_used": vdot,
-            "mode": mode,
-            "modele_cle": adapted.get("modele_cle"),
-        }
+        if not slot_id or not record_id:
+            msg = "slot_id et record_id sont obligatoires pour SCN_0g"
+            logger.error(f"[SCN_0g] {msg}")
+            return InternalResult.error(
+                message=msg,
+                source="SCN_0g"
+            )
 
         return InternalResult.ok(
-            message="SCN_0g terminé (séance générée)",
-            data=result,
-            source="SCN_0g",
+            {
+                "slot_id": slot_id,
+                "record_id": record_id
+            },
+            source="SCN_0g"
         )
 
     except Exception as e:
-        log_error(f"[SCN_0g] ERREUR : {e}")
+        logger.error(f"[SCN_0g] Exception : {e}")
+        traceback.print_exc()
         return InternalResult.error(
-            message=f"Erreur SCN_0g : {e}",
-            source="SCN_0g",
-            data={"slot_id": slot_id, "record_id": record_id},
+            message=f"Exception SCN_0g : {e}",
+            source="SCN_0g"
         )
-
 
 # ==========================================================
 # SAFE MODE (RG-09)
@@ -190,6 +135,7 @@ def _safe_mode(session_info: dict) -> InternalResult:
             "phase": session_info["phase"],
             "semaine": session_info["semaine"],
             "jour": session_info["jour"],
+            "date": session_info.get("date"),  # 👈 AJOUT
             "description": "Endurance fondamentale douce, aisée, relâchée.",
             "conseils": "Respire, reste facile, relâche tes épaules.",
             "vdot_used": session_info["vdot"],
@@ -351,7 +297,10 @@ def _adapt_model(model: dict, runner: dict, slot: dict, feedback: dict | None = 
       - conseils (optionnel)
       - modele_cle
     """
+    if feedback:
+        log_info("[SCN_0g] Feedback reçu mais non traité (placeholder v2)")  # ✅ PATCH 2
 
+    adapted = model.copy()
     duree = model.get("Durée (min)", 30)
     try:
         duree = int(duree)

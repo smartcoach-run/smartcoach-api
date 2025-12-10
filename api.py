@@ -42,36 +42,14 @@ def health():
 # =====================================================
 
 @app.post("/generate_by_id")
-async def generate(payload: dict):
-    scenario = payload.get("scenario")
-    record_id = payload.get("record_id")
+async def generate(body: GenerateRequest):
+    logger.info(f"API → /generate_by_id called scenario={body.scenario}")
 
-    # ✅ transmettre le payload complet !
-    return dispatch_scenario(scenario, record_id, payload)
+    scenario = body.scenario
+    record_id = body.record_id
+    internal_payload = body.payload or {}   # contient mode + run_context
 
-    logger.info(f"API → Requête reçue ({body.scenario})")
-
-    # 🔥 AJOUT DEBUG ICI
-    logger.info(f"[DEBUG] API INPUT record_id={body.record_id}")
-    logger.info(f"[DEBUG] API INPUT payload={body.payload}")
-
-    try:
-        result = dispatch_scenario(
-            scn_name=body.scenario,
-            record_id=body.record_id,
-            payload=body.payload or {}
-        )
-
-        return {
-            "status": "ok",
-            "message": f"{body.scenario} terminé avec succès (v2025 stable)",
-            "data": result
-        }
-
-    except Exception as e:
-        logger.exception(f"Erreur dans generate_by_id : {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
+    return dispatch_scenario(scenario, record_id, internal_payload)
 
 # =====================================================
 #      ROUTE SPÉCIALE : /generate_sessions

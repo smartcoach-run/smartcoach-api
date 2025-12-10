@@ -152,6 +152,42 @@ class AirtableService:
         return self.get_all_records()
     
     # ---------------------------------------------------------
+    # UPSERT générique (create si non trouvé, update sinon)
+    # ---------------------------------------------------------
+    def upsert_record(self, table_id: str, key_field: str, key_value: str, fields: dict):
+        """
+        Upsert générique SmartCoach :
+        - Cherche un record où key_field == key_value
+        - Update si trouvé
+        - Sinon Create
+        Retourne le record Airtable final.
+        """
+
+        from core.utils.logger import log_info, log_error
+
+        try:
+            # 1) Lire table
+            temp_table = Table(self.api_key, self.base_id, table_id)
+
+            # 2) Chercher record existant
+            formula = f"{{{key_field}}} = '{key_value}'"
+            matches = temp_table.all(formula=formula)
+
+            if matches:
+                record_id = matches[0]["id"]
+                log_info(f"[Airtable UPSERT] Update → {table_id}/{record_id} ({key_field}={key_value})")
+                return temp_table.update(record_id, fields)
+
+            # 3) Sinon créer
+            fields[key_field] = key_value
+            log_info(f"[Airtable UPSERT] Create → {table_id} ({key_field}={key_value})")
+            return temp_table.create(fields)
+
+        except Exception as e:
+            log_error(f"[Airtable UPSERT] Erreur sur {table_id} : {e}")
+            raise
+    
+    # ---------------------------------------------------------
     #   Lecture d’un record dans une table donnée.
     #    Compatible SCN_1 / RCTC v2025-12.
     #    Utilise un cache mémoire interne pour les accès répétés.

@@ -131,17 +131,30 @@ def _compute_training_window(data: dict, context) -> dict:
         "warnings": warnings
     }
 # Step3 — Fenêtre d'entraînement SmartCoach (version contractuelle)
-def _compute_training_window(data: dict) -> dict:
+def _compute_training_window(data: dict, context=None) -> dict:
+    """
+    Version tolérante :
+    - Si date_objectif > today → c'est une course
+    - Sinon → on démarre le plan à partir de Date_dernière_demande
+    """
+
     objectif = (data.get("objectif") or "").upper()
     mode = data.get("mode")
     niveau_final = data.get("niveau_final") or "Débutant"
-    date_objectif = data.get("date_objectif")
 
-    target_date = _parse_iso_date(date_objectif)
-    if not target_date:
-        raise ValueError("date_objectif manquante ou invalide")
+    today = date.today()
 
-    # 1) Nombre de semaines selon objectif + niveau
+    # 1) Charger les deux dates
+    date_obj = _parse_iso_date(data.get("date_objectif"))
+    date_anchor = _parse_iso_date(data.get("date_derniere_demande")) or today
+
+    # 2) Déterminer la vraie date de fin utilisée
+    if date_obj and date_obj > today:
+        date_fin = date_obj                 # cas RUN normal
+    else:
+        date_fin = date_anchor              # cas "pas de course" / "date passée"
+
+    # 3) Nombre de semaines selon ce que tu avais avant
     if mode == "RUN" and objectif in RUN_DISTANCE_CONFIG:
         cfg = RUN_DISTANCE_CONFIG[objectif]
         base = cfg["base_weeks"] + LEVEL_ADJUST.get(niveau_final, 0)
@@ -149,15 +162,14 @@ def _compute_training_window(data: dict) -> dict:
     else:
         nb_semaines = DEFAULT_CONFIG_OTHER.get(mode, 8)
 
-    # 2) Date de début (contractuelle)
-    date_debut_plan = target_date - timedelta(weeks=nb_semaines)
-    date_fin_plan = target_date
+    # 4) Date de début
+    date_debut = date_fin - timedelta(weeks=nb_semaines)
 
     return {
         "nb_semaines": nb_semaines,
-        "date_debut_plan": date_debut_plan.isoformat(),
-        "date_fin_plan": date_fin_plan.isoformat(),
-        "warnings": []  # plus de warnings ici, géré côté Airtable/Make
+        "date_debut_plan": date_debut.isoformat(),
+        "date_fin_plan": date_fin.isoformat(),
+        "warnings": []
     }
 
 def _build_plan_skeleton(nb_semaines: int, jours_optimises: list[str]) -> dict:
@@ -224,7 +236,7 @@ def run_scn_1(context) -> dict:
 
     # 5) Step3 — Fenêtre d'entraînement (nb_semaines + dates)
     log.info("SCN_1 → Étape 5 : Calcul fenêtre (Step3)")
-    window = _compute_training_window(data)
+    window = _compute_training_window(data, context)
 
     data["nb_semaines"] = window["nb_semaines"]
     data["date_debut_plan"] = window["date_debut_plan"]
@@ -239,11 +251,16 @@ def run_scn_1(context) -> dict:
     )
     data["plan_squelette"] = plan_squelette
 
-    # 7) Sortie finale SCN_1   
-
+    # 7) Sortie finale SCN_1 (MVP minimal, aucun slot écrit dans Airtable)
     return InternalResult.ok(
-        data=data,
-        message="SCN_1 terminé (socle 0a/0c/0b + Step3/4 exécuté)",
+        data={
+            "nb_semaines": data["nb_semaines"],
+            "date_debut_plan": data["date_debut_plan"],
+            "date_fin_plan": data["date_fin_plan"],
+            "jours_optimises": data["jours_optimises"],
+            "plan_squelette": data["plan_squelette"]
+        },
+        message="SCN_1 terminé (structure générée sans écriture Airtable)",
         source="SCN_1",
         context=context
     )

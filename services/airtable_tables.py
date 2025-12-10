@@ -40,6 +40,8 @@ class ATABLES:
     # 📘 Référentiel Niveaux
     REF_NIVEAUX_ID = os.getenv(f"AIRTABLE_REF_NIVEAUX_{ENV}")
 
+    # 🧩 Slots
+    REF_SLOTS_ID = os.getenv(f"AIRTABLE_SLOTS_TABLE_{ENV}")
 
     # ======================================================
     # 📌 TABLES À ID FIXE
@@ -54,6 +56,7 @@ class ATABLES:
 
     # Les anciens noms utilisés partout dans ton code :
     COU_TABLE = COU_TABLE_ID
+    SLOTS = REF_SLOTS_ID
     SEANCES = SEANCES_TABLE_ID
     SEANCES_TYPES = SEANCES_TYPES_ID
     VDOT = VDOT_TABLE_ID

@@ -8,9 +8,11 @@ from core.utils.logger import log_info
 from core.internal_result import InternalResult
 
 # ➜ Tous tes scénarios fonctionnels sont bien dans agregateur
+from scenarios.agregateur.scn_run import run_scn_run
 from scenarios.agregateur.scn_1 import run_scn_1
 from scenarios.agregateur.scn_2 import run_scn_2
 from scenarios.agregateur.scn_6 import run_scn_6
+from scenarios.agregateur.scn_7 import run_scn_7
 
 logger = logging.getLogger("Dispatcher")
 
@@ -33,7 +35,12 @@ def dispatch_scenario(scn_name: str, record_id: str, payload: dict = None):
         record_id=record_id,
         payload=payload or {}
     )
-
+    # ======================================================
+    # SCN_RUN — nouveau moteur Running
+    # ======================================================
+    if scn_name == "SCN_RUN":
+        return run_scn_run(context)
+    
     # ======================================================
     # SCN_1 — Génération du plan (structure)
     # ======================================================
@@ -80,6 +87,12 @@ def dispatch_scenario(scn_name: str, record_id: str, payload: dict = None):
     if scn_name == "SCN_6":
         return run_scn_6(context)
 
+    # ======================================================
+    # SCN_7 
+    # ======================================================
+    if scn_name == "SCN_7":
+        return run_scn_7(context)
+    
     # ======================================================
     # Aucun scénario correspondant → erreur
     # ======================================================

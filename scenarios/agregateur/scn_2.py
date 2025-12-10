@@ -112,9 +112,16 @@ def run_scn_2(context, data_scn1: Dict[str, Any]) -> InternalResult:
             )
 
         date_debut_plan = _parse_iso(data_scn1["date_debut_plan"])
-        date_objectif = _parse_iso(data_scn1["date_objectif"])
+        date_objectif = _parse_iso(data_scn1.get("date_fin_plan"))
         jours = data_scn1.get("jours_optimises") or data_scn1.get("jours_dispos") or []
         categorie_smartcoach = data_scn1.get("categorie_smartcoach")
+
+        record_id = getattr(context, "record_id", None)
+        if not record_id:
+            return InternalResult.error(
+                message="record_id manquant pour SCN_2",
+                source="SCN_2"
+            )
 
         if not jours:
             return InternalResult.error(
@@ -130,7 +137,7 @@ def run_scn_2(context, data_scn1: Dict[str, Any]) -> InternalResult:
         seances_types = _load_seances_types()
         mapping_phase = _load_mapping_phase(categorie_smartcoach)
 
-        # Pré-calcul du premier jour valide pour chaque jour optimisé
+        # Pré-calcul du premier jour valide
         first_dates = {
             jour: _compute_first_slot_date(date_debut_plan, jour)
             for jour in jours
@@ -138,10 +145,16 @@ def run_scn_2(context, data_scn1: Dict[str, Any]) -> InternalResult:
 
         slots = []
 
-        # Génération des slots semaine par semaine
+        # --------------------------
+        # BOUCLE SEMAINE PAR SEMAINE
+        # --------------------------
         for week_idx in range(nb_semaines):
+
             phase = phases_by_week[week_idx]
 
+            # --------------------------
+            # BOUCLE JOUR PAR JOUR
+            # --------------------------
             for i, jour in enumerate(jours):
 
                 slot_date = first_dates[jour] + timedelta(weeks=week_idx)
@@ -153,6 +166,8 @@ def run_scn_2(context, data_scn1: Dict[str, Any]) -> InternalResult:
                     intensity_tag=intensity_tag,
                     jour=jour,
                 )
+
+                slot_id = f"{record_id}__S{week_idx+1}__{jour}"
 
                 if seance is None:
                     slot = {
@@ -166,6 +181,7 @@ def run_scn_2(context, data_scn1: Dict[str, Any]) -> InternalResult:
                         "type_seance_nom": None,
                         "seance_type_id": None,
                         "status": "planned",
+                        "slot_id": slot_id,
                     }
                 else:
                     slot = {
@@ -173,12 +189,13 @@ def run_scn_2(context, data_scn1: Dict[str, Any]) -> InternalResult:
                         "jour_sem": jour,
                         "date_cible": slot_date.isoformat(),
                         "phase": phase,
-                        "categorie_moteur": seance.get("Catégorie_moteur"),
-                        "charge_coeff": seance.get("Charge_coeff"),
-                        "allure_dominante": seance.get("Allure_dominante_moteur"),
-                        "type_seance_nom": seance.get("Nom"),
-                        "seance_type_id": seance.get("id") or seance.get("Record ID"),
+                        "categorie_moteur": seance.categorie_moteur,
+                        "charge_coeff": seance.charge_coeff,
+                        "allure_dominante": seance.allure_dominante,
+                        "type_seance_nom": seance.nom,
+                        "seance_type_id": seance.id,
                         "status": "planned",
+                        "slot_id": slot_id,
                     }
 
                 slots.append(slot)
@@ -193,8 +210,8 @@ def run_scn_2(context, data_scn1: Dict[str, Any]) -> InternalResult:
                 "slots": slots,
             },
             message="SCN_2 terminé (slots générés)",
-            source="SCN_2",)
-
+            source="SCN_2",
+        )
 
     except Exception as e:
         log_error(f"[SCN_2] Erreur inattendue : {e}")
