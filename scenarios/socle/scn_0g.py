@@ -82,96 +82,35 @@ def _airtable_get(table_id: str, record_id: str | None = None, formula: str | No
 # ==========================================================
 # scenarios/agregateur/scn_0g.py
 
-def run_scn_0g(context) -> InternalResult:
-    """
-    SCN_0g – Version MVP minimale.
-    Objectif :
-        - Vérifier les paramètres obligatoires
-        - Générer une séance simple mais valide
-        - Permettre à SCN_6 de tourner sans erreur
-    """
+def run_scn_0g(context):
+    logger.info("[SCN_0g] Début SCN_0g")
 
-    try:
-        logger.info("[SCN_0g] Début SCN_0g (MVP)")
-        # -----------------------------
-        # 0) Dispatch par model_family
-        # -----------------------------
-        model_family = getattr(context, "model_family", None)
+    # ----------------------------------------------------
+    # 1) Dispatch — sélection du modèle via SCN_6
+    # ----------------------------------------------------
+    model_family = getattr(context, "model_family", None)
 
-        if model_family == "MARA_REPRISE_Q1":
-            logger.info("[SCN_0g] Modèle MARA_REPRISE_Q1 détecté")
-            built = build_mara_reprise_q1(context)
+    if model_family == "MARA_REPRISE_Q1":
+        logger.info("[SCN_0g] Modèle MARA_REPRISE_Q1 détecté")
+        built = build_mara_reprise_q1(context)
 
-            return InternalResult.ok(
-                data={
-                    "session": built["session"],
-                    "war_room": built.get("war_room", {}),
-                    "phase_context": {}
-                },
-                source="SCN_0g",
-                message="Séance générée via modèle MARA_REPRISE_Q1"
-            )
-
-        # 1️⃣ Extraction des paramètres depuis le contexte
-        record_id = getattr(context, "record_id", None)
-
-        slot = getattr(context, "slot", {}) or {}
-        slot_id = slot.get("slot_id")
-
-        # Vérifications minimales
-        if not slot_id or not record_id:
-            logger.error("[SCN_0g] slot_id et record_id sont obligatoires pour SCN_0g")
-            return InternalResult.error(
-                message="slot_id et record_id sont obligatoires pour SCN_0g",
-                source="SCN_0g"
-            )
-
-        # 2️⃣ Construction d’une séance MVP cohérente
-        session_block = {
-            "session_id": f"sess_{slot_id}",
-            "slot_id": slot_id,
-            "record_id": record_id,
-            "date": slot.get("date"),
-            "phase": slot.get("phase"),
-            "type": slot.get("type"),
-            "description": "Séance test qualitative (MVP SCN_0g)",
-            "duration_min": 45,
-
-            # Steps simples mais réalistes
-            "steps": [
-                {"type": "E", "duration_min": 15},
-                {
-                    "repeat": 6,
-                    "steps": [
-                        {"type": "R", "duration_sec": 30},
-                        {"type": "E", "duration_sec": 45},
-                    ],
-                },
-                {"type": "E", "duration_min": 10},
-            ],
-
-            "metadata": {
-                "generated_at": datetime.utcnow().isoformat(),
-                "engine_version": "1.0.0-mvp",
-                "socle_version": "SCN_0g",
-            },
-        }
-
-        logger.info("[SCN_0g] Séance MVP générée : OK")
-
-        # 3️⃣ Retour normalisé InternalResult
         return InternalResult.ok(
-            data={"session": session_block, "war_room": {}, "phase_context": {}},
+            data={
+                "session": built["session"],
+                "war_room": built.get("war_room", {}),
+                "phase_context": {}
+            },
             source="SCN_0g",
-            message="Séance générée via SCN_0g (MVP)"
+            message="Séance générée via modèle MARA_REPRISE_Q1"
         )
 
-    except Exception as e:
-        logger.error("[SCN_0g] Erreur : %s", e, exc_info=True)
-        return InternalResult.error(
-            message=f"Erreur SCN_0g : {e}",
-            source="SCN_0g"
-        )
+    # ----------------------------------------------------
+    # Aucun modèle correspondant → erreur contrôlée
+    # ----------------------------------------------------
+    return InternalResult.error(
+        message=f"Aucun model_family reconnu : {model_family}",
+        source="SCN_0g"
+    )
 
 # ==========================================================
 # SAFE MODE (RG-09)
@@ -426,7 +365,7 @@ def build_mara_reprise_q1(ctx):
         {"type": "COOLDOWN", "duration_min": 10, "zone": "E"},
     ]
 
-    duration = 54
+    duration = 20 + 3*(5+3) + 10   # = 54 minutes
 
     session = {
         "session_id": f"sess_{slot.get('slot_id')}",
@@ -438,16 +377,18 @@ def build_mara_reprise_q1(ctx):
         "steps": steps,
         "duration_total": duration,
         "metadata": {
-            "socle_version": "SCN_0g",
             "engine_version": "1.0",
-            "model_family": "MARA_REPRISE_Q1"
+            "socle_version": "SCN_0g",
+            "family": "MARA_REPRISE_Q1"
         }
+    }
+
+    war_room = {
+        "chosen_model": "MARA_REPRISE_Q1",
+        "planned_duration": duration
     }
 
     return {
         "session": session,
-        "war_room": {
-            "chosen_model": "MARA_REPRISE_Q1",
-            "planned_duration": duration
-        }
+        "war_room": war_room
     }

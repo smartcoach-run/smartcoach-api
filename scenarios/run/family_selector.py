@@ -1,33 +1,18 @@
-# scenarios/families/family_selector.py
-
-def select_model_family(ctx) -> str:
+def select_model_family(context):
     """
-    Sélectionne la famille de modèles SOCLE à utiliser
-    en fonction du contexte SmartCoach.
-    
-    Version v0 : ne gère que SC-001 (Reprise Marathon 3h45).
-    La logique sera étendue progressivement via les SF_xx.
+    Sélectionne le model_family en fonction du scénario.
+    Pour SC-001, on retourne MARA_REPRISE_Q1.
     """
 
-    objective = getattr(ctx, "objective_type", None)
-    phase = getattr(ctx, "phase", None)
-    submode = getattr(ctx, "submode", None)
-    level = getattr(ctx, "vdot", None) or getattr(ctx, "level", None)
-
-    # ------------------------------------------------------------------
-    # SC-001 : Marathon / Reprise / objectif 3h45
-    # ------------------------------------------------------------------
+    # Detect SC-001 (Marathon 3h45 Reprise)
     if (
-        objective == "marathon"
-        and submode == "reprise"
-        and phase == "Reprise"
+        getattr(context, "mode", None) == "running"
+        and getattr(context, "submode", None) == "reprise"
+        and getattr(context, "objective_type", None) == "marathon"
+        and getattr(context, "objective_time", None) in ("3:45", "3:45:00")
+        and (getattr(context, "age", None) is None or 40 <= context.age <= 55)
     ):
-        # On ne fixe pas un modèle ultra-spécifique (3h45) pour éviter
-        # la multiplication explosive des classes.
-        # => On renvoie une famille générique MARA_REPRISE_Q1
         return "MARA_REPRISE_Q1"
 
-    # ------------------------------------------------------------------
-    # Défaut (fallback)
-    # ------------------------------------------------------------------
+    # fallback générique
     return "GENERIC_EF_Q1"

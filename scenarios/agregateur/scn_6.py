@@ -61,161 +61,145 @@ def _build_phase_rules_from_airtable(records: list[dict]) -> Dict[str, Dict[str,
 
 from scenarios.socle.scn_0g import run_scn_0g
 
-def run_scn_6(context: SmartCoachContext):
+def detect_scenario(context):
+    """
+    Analyse le contexte utilisateur et renvoie l’ID du scénario fonctionnel.
+    """
+    mode = context.mode
+    submode = context.submode
+    obj_type = context.objective_type
+    obj_time = context.objective_time
+    age = context.age
 
+    # SC-001 — Marathon 3h45 Reprise 40-55 ans
+    if (
+        mode == "running"
+        and submode == "reprise"
+        and obj_type == "marathon"
+        and obj_time in ("3:45", "3:45:00")
+        and (age is None or 40 <= age <= 55)
+    ):
+        return "SC-001"
+
+    return "KO_SCENARIO"
+
+def dispatch_model(context, scenario_id):
+    """
+    Retourne le model_family à utiliser selon le scénario identifié.
+    """
+    if scenario_id == "SC-001":
+        return "MARA_REPRISE_Q1"
+
+    return "GENERIC_EF_Q1"
+
+def run_scn_6(payload, record_id=None):
+    logger.info("[SCN_6] Début SCN_6")
+    logger.info(f"[SCN_6] PAYLOAD_RECU = {payload}")
     try:
-        # -----------------------------------------------------------------------------------
-        # 1) Récupération du payload brut
-        # -----------------------------------------------------------------------------------
-        payload = getattr(context, "payload", {}) or {}
+        # ----------------------------------------------------
+        # Lecture universelle du payload racine
+        # payload peut être :
+        #  - un dict (appel direct API)
+        #  - un SmartCoachContext (appel depuis dispatcher SCN)
+        # ----------------------------------------------------
 
-        # record_id transmis par l’API /generate_by_id
-        record_id = getattr(context, "record_id", None)
+        if isinstance(payload, dict):
+            # Appel direct depuis API → JSON brut
+            run_ctx = payload.get("run_context", {}) or {}
 
-        run_ctx = payload.get("run_context", {}) or {}
+        elif hasattr(payload, "payload") and isinstance(payload.payload, dict):
+            # Appel depuis dispatcher → JSON stocké dans context.payload
+            run_ctx = payload.payload.get("run_context", {}) or {}
+
+        else:
+            # Dernier fallback : tenter d'accéder directement
+            run_ctx = getattr(payload, "run_context", {}) or {}
 
         slot = run_ctx.get("slot", {}) or {}
-        context.payload = {
-            "slot_id": slot.get("slot_id"),
-            "record_id": record_id
+
+        # ----------------------------------------------------
+        # Construction du contexte interne
+        # ----------------------------------------------------
+        context = SmartCoachContext()
+
+        # Identifiants
+        context.record_id = record_id
+        context.slot_id = slot.get("slot_id")
+
+        # On stocke le payload brut si besoin
+        context.payload = payload
+
+        # Slot complet pour SCN_0g (variable interne, pas champ pydantic)
+        context.__dict__["slot"] = slot
+
+        # War room
+        context.__dict__["war_room"] = {}
+
+        # ----------------------------------------------------
+        # Extraction du profil / objectif → injection dans le contexte
+        # ----------------------------------------------------
+        profile = run_ctx.get("profile", {}) or {}
+        objectif = run_ctx.get("objectif", {}) or {}
+
+        context.__dict__["mode"] = objectif.get("discipline", "").lower()
+        context.__dict__["submode"] = objectif.get("experience", "").lower()
+        context.__dict__["objective_type"] = objectif.get("type", "").lower()
+        context.__dict__["objective_time"] = objectif.get("chrono_cible")
+        context.__dict__["age"] = profile.get("age")
+
+        # Stockage dans war_room (debug)
+        context.war_room["inputs"] = {
+            "mode": context.mode,
+            "submode": context.submode,
+            "objective_type": context.objective_type,
+            "objective_time": context.objective_time,
+            "age": context.age
         }
 
-        # -----------------------------------------------------------------------------------
-        # 2) Préparation du contexte pour SCN_0g
-        # -----------------------------------------------------------------------------------
-        context.record_id = record_id                 # obligatoire
-        context.course_id = record_id                 # facultatif, mais cohérent
-        context.slot_id = slot.get("slot_id")         # obligatoire
+        # ----------------------------------------------------
+        # 1) Détection du scénario fonctionnel
+        # ----------------------------------------------------
+        scenario_id = detect_scenario(context)
+        context.war_room["scenario_id"] = scenario_id
 
-        logger.info("[SCN_6] Contexte préparé pour SCN_0g : record_id=%s, slot_id=%s",
-            context.record_id, context.slot_id)
+        # ----------------------------------------------------
+        # 2) Si KO_SCENARIO → renvoyer proprement
+        # ----------------------------------------------------
+        if scenario_id == "KO_SCENARIO":
+            return InternalResult.error(
+                message="Aucun scénario fonctionnel applicable",
+                source="SCN_6",
+                data={"war_room": context.war_room}
+            )
 
-        # -----------------------------------------------------------------------------------
-        # 2.b) Sélection du scénario fonctionnel (v0 : SC-001 seulement)
-        # -----------------------------------------------------------------------------------
-        try:
-            # Extraction des données utiles depuis SmartCoachContext
-            user_mode = getattr(context, "mode", None)
-            user_submode = getattr(context, "submode", None)
-            objective_type = getattr(context, "objective_type", None)
-            objective_time = getattr(context, "objective_time", None)
-            user_age = getattr(context, "age", None)
+        # ----------------------------------------------------
+        # 3) Sélection du model_family
+        # ----------------------------------------------------
+        context.__dict__["model_family"] = dispatch_model(context, scenario_id)
+        context.war_room["model_family"] = context.model_family
 
-            scenario_id = "KO_SCENARIO"
+        # ----------------------------------------------------
+        # 4) Appel du moteur SOCLE SCN_0g
+        # ----------------------------------------------------
+        result = run_scn_0g(context)
 
-            # --- Conditions exactes du scénario SC-001 ---
-            if (
-                user_mode == "running"
-                and user_submode == "reprise"
-                and objective_type == "marathon"
-                and objective_time in ("3:45", "3:45:00")
-                and (user_age is None or 40 <= user_age <= 55)
-            ):
-                scenario_id = "SC-001"
+        if not result.success:
+            raise RuntimeError(f"SCN_0g a échoué : {result.message}")
 
-            # Initialiser war_room si absent
-            war_room = getattr(context, "war_room", {}) or {}
-            war_room["scenario_id"] = scenario_id
-            context.war_room = war_room
-
-            if scenario_id == "KO_SCENARIO":
-                logger.info("[SCN_6] Aucun scénario fonctionnel applicable (v0 : SC-001 uniquement)")
-                # Ici on pourrait arrêter, mais pour l’instant on laisse tourner SCN_0g.
-                # Pour bloquer la génération : décommenter les 3 lignes suivantes.
-                #
-                # return InternalResult.error(
-                #     message="Aucun scénario fonctionnel applicable (seul SC-001 actif)",
-                #     source="SCN_6",
-                #     extra={"war_room": war_room}
-                # )
-            else:
-                logger.info(f"[SCN_6] Scénario sélectionné : {scenario_id}")
-                # -----------------------------------------------------------------------------------
-                # 2.c) Paramétrage SC-001 pour SCN_0g
-                # -----------------------------------------------------------------------------------
-                if scenario_id == "SC-001":
-                    context.target_duration = slot.get("duration") or slot.get("duration_min") or 60
-                    context.max_intensity = "T"
-                    context.model_family = select_model_family(context)
-                    context.session_focus = "ef_plus_tempo_light"
-                    context.mode_reprise = True
-                    context.phase = "Reprise"
-
-                    # Ajout dans la war_room
-                    context.war_room["params"] = {
-                        "target_duration": context.target_duration,
-                        "max_intensity": context.max_intensity,
-                        "model_family": context.model_family,
-                        "session_focus": context.session_focus,
-                        "mode_reprise": context.mode_reprise,
-                        "phase": context.phase,
-                    }
-
-                    logger.info("[SCN_6] Paramètres SC-001 appliqués au contexte")
-
-
-        except Exception as scen_err:
-            logger.error("[SCN_6] Erreur sélection scénario : %s", scen_err, exc_info=True)
-            # En cas d’erreur, on laisse SCN_0g tourner mais on marque l’erreur dans la war_room
-            war_room = getattr(context, "war_room", {}) or {}
-            war_room["scenario_id"] = "ERROR_SCENARIO"
-            war_room["scenario_error"] = str(scen_err)
-            context.war_room["model_family"] = getattr(context, "model_family", None)
-            context.war_room = war_room
-
-        # 2) Délégation au moteur SCN_0g
-
-        # -------------------------
-        # Injection du slot dans le contexte (obligatoire pour SCN_0g)
-        # -------------------------
-        context.slot = slot
-
-        logger.info("[SCN_6] Délégation au moteur SCN_0g")
-        result_0g = run_scn_0g(context)
-
-        if not result_0g.success:
-            raise Exception(f"SCN_0g a échoué : {result_0g.message}")
-
-        data_0g = result_0g.data or {}
-
-        session = data_0g.get("session", {}) or {}
-        war_room = result_0g.data.get("war_room", {}) if result_0g.data else {}
-        phase_context = result_0g.data.get("phase_context", {}) if result_0g.data else {}
-
-        # 3) Renforcement des champs SCN_6
-        session["date"] = slot.get("date")
-        session["phase"] = slot.get("phase")
-        session["type"] = slot.get("type")
-        session["slot_id"] = slot.get("slot_id")
-
-        session.setdefault("metadata", {})
-        session["metadata"]["mode"] = payload.get("mode", "ondemand")
-        session["metadata"]["socle_version"] = "SCN_6"
-
-        # 4) Structure finale SCN_6
-        data_0g = result_0g.data or {}
-
-        session = data_0g.get("session", {}) or {}
-
-        response_payload = {
-            "session": session,
-            "slot": slot,
-            "war_room": data_0g.get("war_room", {}),
-            "phase_context": data_0g.get("phase_context", {}),
-            "ics_block": None,
-            "storage": {}
-        }
-
-        logger.info("[SCN_6] Séance générée : OK")
+        # ----------------------------------------------------
+        # 5) Construction de la réponse
+        # ----------------------------------------------------
+        final_data = result.data or {}
+        final_data["war_room"] = context.war_room
 
         return InternalResult.ok(
-            data=response_payload,
+            data=final_data,
             source="SCN_6",
             message="Séance générée avec SCN_0g via SCN_6"
         )
 
     except Exception as e:
-        logger.error("[SCN_6] Erreur : %s", e, exc_info=True)
+        logger.exception("[SCN_6] Exception")
         return InternalResult.error(
             message=f"Erreur SCN_6 : {e}",
             source="SCN_6"
