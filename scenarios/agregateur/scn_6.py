@@ -5,7 +5,7 @@ from core.internal_result import InternalResult
 from core.context import SmartCoachContext
 from engine.bab_engine_mvp import BABEngineMVP
 from models.candidates_repo import CandidatesRepository
-from scenarios.run.family_selector import select_model_family
+from scenarios.run.family_selector import select_scenario_and_family
 from services.airtable_service import AirtableService
 from services.airtable_tables import ATABLES
 from services.airtable_fields import ATFIELDS
@@ -61,6 +61,7 @@ def _build_phase_rules_from_airtable(records: list[dict]) -> Dict[str, Dict[str,
 
 from scenarios.socle.scn_0g import run_scn_0g
 
+#A SUPPRIMER
 def detect_scenario(context):
     """
     Analyse le contexte utilisateur et renvoie l’ID du scénario fonctionnel.
@@ -82,7 +83,7 @@ def detect_scenario(context):
         return "SC-001"
 
     return "KO_SCENARIO"
-
+#A SUPPRIMER
 def dispatch_model(context, scenario_id):
     """
     Retourne le model_family à utiliser selon le scénario identifié.
@@ -156,15 +157,14 @@ def run_scn_6(payload, record_id=None):
             "age": context.age
         }
 
-        # ----------------------------------------------------
-        # 1) Détection du scénario fonctionnel
-        # ----------------------------------------------------
-        scenario_id = detect_scenario(context)
-        context.war_room["scenario_id"] = scenario_id
+        # 1) Sélection scénario + famille via RG-00 (family_selector)
+        scenario_id, model_family, scores = select_scenario_and_family(context)
 
-        # ----------------------------------------------------
-        # 2) Si KO_SCENARIO → renvoyer proprement
-        # ----------------------------------------------------
+        # War-room : on loggue les entrées + les scores
+        context.war_room["scenario_id"] = scenario_id
+        context.war_room["model_family"] = model_family
+        context.war_room["scores"] = scores
+
         if scenario_id == "KO_SCENARIO":
             return InternalResult.error(
                 message="Aucun scénario fonctionnel applicable",
@@ -172,11 +172,8 @@ def run_scn_6(payload, record_id=None):
                 data={"war_room": context.war_room}
             )
 
-        # ----------------------------------------------------
-        # 3) Sélection du model_family
-        # ----------------------------------------------------
-        context.__dict__["model_family"] = dispatch_model(context, scenario_id)
-        context.war_room["model_family"] = context.model_family
+        # Injection du model_family dans le contexte pour SCN_0g
+        context.__dict__["model_family"] = model_family
 
         # ----------------------------------------------------
         # 4) Appel du moteur SOCLE SCN_0g
