@@ -1,225 +1,338 @@
 # scenarios/agregateur/scn_2.py
+"""
+SCN_2 – Génération de séance RUNNING (niveau C – architecture prête pour personnalisation)
 
-from datetime import date, timedelta
-from typing import Dict, Any, List
+Rôle :
+- Recevoir un run_context + phase_context
+- Calculer un volume cible (durée / distance) en fonction du profil, de l’objectif, de la phase
+- Sélectionner un bloc de séance (block_id) en fonction du type de séance (EF, I, T, M, R)
+- Générer une séance structurée :
+    - title
+    - description
+    - steps
+    - distance_km
+    - load
+    - intensity_tags
+- Retourner un dictionnaire "session" prêt à être intégré dans BAB_ENGINE_MVP
+
+Ce module est centré sur RUNNING mais extensible à d’autres univers plus tard.
+"""
+
+from typing import Dict, Any, List, Tuple
 
 from core.internal_result import InternalResult
 from core.utils.logger import log_info, log_error
 
+MODULE_NAME = "SCN_2"
+
 # -------------------------------------------------------------------
-# Helpers: gestion dates & jours
+# Config “C” simplifiée – à affiner plus tard
 # -------------------------------------------------------------------
 
-DAYS_MAP = {
-    "Lundi": 0,
-    "Mardi": 1,
-    "Mercredi": 2,
-    "Jeudi": 3,
-    "Vendredi": 4,
-    "Samedi": 5,
-    "Dimanche": 6,
+# Volumes cibles (en minutes) par niveau & phase d’entraînement
+VOLUME_TARGET_MIN = {
+    "debutant": {
+        "General": (30, 45),
+        "Specifique": (35, 55),
+        "Affutage": (25, 40),
+    },
+    "intermediaire": {
+        "General": (40, 60),
+        "Specifique": (45, 75),
+        "Affutage": (35, 50),
+    },
+    "avance": {
+        "General": (45, 70),
+        "Specifique": (55, 90),
+        "Affutage": (40, 60),
+    },
 }
 
-def _parse_iso(d: str) -> date:
-    return date.fromisoformat(d)
+# Allures cibles “placeholder” en min/km selon niveau (en attendant VDOT)
+PACE_E_MIN_PER_KM = {
+    "debutant": 7.0,       # 7:00/km
+    "intermediaire": 6.0,  # 6:00/km
+    "avance": 5.0,         # 5:00/km
+}
 
-def _compute_first_slot_date(date_debut: date, target_day: str) -> date:
-    """Retourne la première date >= date_debut correspondant au jour."""
-    target_idx = DAYS_MAP[target_day]
-    delta = (target_idx - date_debut.weekday()) % 7
-    return date_debut + timedelta(days=delta)
+# Coefficients de charge simple (à raffiner plus tard)
+LOAD_COEFF = {
+    "E": 1.0,
+    "M": 1.1,
+    "T": 1.3,
+    "I": 1.5,
+    "R": 1.7,
+}
 
-# -------------------------------------------------------------------
-# Phases dynamiques (P1/P2/P3/P4)
-# -------------------------------------------------------------------
-
-def _compute_phase_slices(nb_semaines: int) -> List[str]:
-    if nb_semaines <= 0:
-        return []
-
-    ratios = [0.30, 0.20, 0.40, 0.10]
-    raw = [r * nb_semaines for r in ratios]
-
-    phases_len = [max(1, round(x)) for x in raw]
-
-    diff = sum(phases_len) - nb_semaines
-    if diff != 0:
-        phases_len[-1] -= diff
-        if phases_len[-1] < 1:
-            phases_len[-1] = 1
-
-    phases = []
-    labels = ["P1", "P2", "P3", "P4"]
-    for label, n in zip(labels, phases_len):
-        phases.extend([label] * n)
-
-    if len(phases) > nb_semaines:
-        phases = phases[:nb_semaines]
-    elif len(phases) < nb_semaines:
-        phases.extend(["P4"] * (nb_semaines - len(phases)))
-
-    return phases
 
 # -------------------------------------------------------------------
-# Pattern intensité hebdo (LIGHT / HARD / LONG)
+# Helpers internes
 # -------------------------------------------------------------------
 
-def _build_week_intensity_pattern(nb_sessions: int) -> List[str]:
-    if nb_sessions <= 0:
-        return []
-    if nb_sessions == 1:
-        return ["LONG"]
-    if nb_sessions == 2:
-        return ["LIGHT", "LONG"]
-    if nb_sessions == 3:
-        return ["LIGHT", "HARD", "LONG"]
-    if nb_sessions == 4:
-        return ["LIGHT", "HARD", "LIGHT", "LONG"]
-    return ["LIGHT", "HARD", "LIGHT", "HARD", "LONG"][:nb_sessions]
+def _get_level(profile: Dict[str, Any]) -> str:
+    """
+    Normalise le niveau à 'debutant' / 'intermediaire' / 'avance'.
+    """
+    raw = (profile.get("niveau") or profile.get("level") or "").lower()
 
-# -------------------------------------------------------------------
-# Référentiels (placeholder pour la future intégration Airtable)
-# -------------------------------------------------------------------
+    if "deb" in raw or raw == "n1":
+        return "debutant"
+    if "inter" in raw or raw == "n2":
+        return "intermediaire"
+    if "av" in raw or raw == "n3":
+        return "avance"
 
-def _load_seances_types() -> List[Dict[str, Any]]:
-    return []
+    # défaut raisonnable
+    return "debutant"
 
-def _load_mapping_phase(categorie_smartcoach: str) -> List[Dict[str, Any]]:
-    return []
 
-# -------------------------------------------------------------------
-# Placeholder : sélection de séance (sera remplacé par Airtable)
-# -------------------------------------------------------------------
+def _get_phase_name(phase_context: Dict[str, Any], slot: Dict[str, Any]) -> str:
+    """
+    Récupère le nom de la phase (General / Specifique / Affutage).
+    """
+    phase = phase_context.get("phase") or slot.get("phase") or "General"
+    phase = str(phase).lower()
 
-def _choose_seance_for_slot(seances_types, phase, intensity_tag, jour):
-    return None  # volontaire pour tester la structure
+    if "affut" in phase:
+        return "Affutage"
+    if "spec" in phase:
+        return "Specifique"
+    return "General"
 
-# -------------------------------------------------------------------
-# SCN_2 principal
-# -------------------------------------------------------------------
 
-def run_scn_2(context, data_scn1: Dict[str, Any]) -> InternalResult:
-    try:
-        log_info("SCN_2 → Démarrage (construction des slots)")
+def _compute_volume_target_minutes(
+    level: str,
+    phase_name: str,
+    historique: List[Dict[str, Any]],
+    run_context: Dict[str, Any],
+) -> int:
+    """
+    Calcule un volume cible (en minutes) pour la séance.
+    - basé sur niveau + phase
+    - ajustable plus tard avec l'historique (charge, fatigue)
+    """
+    default_range = (40, 50)
 
-        nb_semaines = int(data_scn1.get("nb_semaines", 0))
-        if nb_semaines <= 0:
-            return InternalResult.error(
-                code="KO_DATA",
-                message="nb_semaines invalide dans data_scn1",
-                data={"data_scn1": data_scn1},
-                source="SCN_2",
-            )
+    phase_ranges = VOLUME_TARGET_MIN.get(level) or {}
+    vol_range = phase_ranges.get(phase_name, default_range)
 
-        date_debut_plan = _parse_iso(data_scn1["date_debut_plan"])
-        date_objectif = _parse_iso(data_scn1.get("date_fin_plan"))
-        jours = data_scn1.get("jours_optimises") or data_scn1.get("jours_dispos") or []
-        categorie_smartcoach = data_scn1.get("categorie_smartcoach")
+    base_min, base_max = vol_range
 
-        record_id = getattr(context, "record_id", None)
-        if not record_id:
-            return InternalResult.error(
-                message="record_id manquant pour SCN_2",
-                source="SCN_2"
-            )
+    # Ajustement simple selon historique (placeholder)
+    # Ex : si dernière semaine très chargée -> on réduit légèrement
+    recent_load = run_context.get("recent_load") or 0
+    if recent_load > 1.2:   # charge forte
+        base_max = max(base_min, base_max - 10)
+    elif recent_load < 0.8:  # charge légère
+        base_min = base_min + 5
 
-        if not jours:
-            return InternalResult.error(
-                code="KO_DATA",
-                message="Aucun jour disponible pour construire les slots",
-                data={},
-                source="SCN_2",
-            )
+    target = int((base_min + base_max) / 2)
+    return max(20, target)
 
-        phases_by_week = _compute_phase_slices(nb_semaines)
-        pattern = _build_week_intensity_pattern(len(jours))
 
-        seances_types = _load_seances_types()
-        mapping_phase = _load_mapping_phase(categorie_smartcoach)
+def _estimate_distance_km(duration_min: int, level: str) -> float:
+    """
+    Estimation de la distance à partir de la durée et d'une allure E simplifiée.
+    """
+    pace = PACE_E_MIN_PER_KM.get(level, 6.0)  # min/km
+    km = duration_min / pace
+    return round(km, 1)
 
-        # Pré-calcul du premier jour valide
-        first_dates = {
-            jour: _compute_first_slot_date(date_debut_plan, jour)
-            for jour in jours
+
+def _compute_load(duration_min: int, intensity: str) -> int:
+    """
+    Calcul de charge simple : durée * coeff_intensité.
+    """
+    coeff = LOAD_COEFF.get(intensity, 1.0)
+    return int(round(duration_min * coeff))
+
+
+def _select_block_id(
+    seance_type: str,
+    phase_name: str,
+    level: str,
+    volume_target_min: int,
+) -> str:
+    """
+    Sélectionne un block_id en fonction du type de séance, de la phase, du niveau et du volume.
+    Ici, on reste simple mais la structure est prête pour la future BF.
+    """
+    seance_type = seance_type.upper()
+
+    # Exemple de nomenclature :
+    # BF_RUN_<TYPE>_<PHASE>_<LEVEL>_<VOLUME_ZONE>
+    if volume_target_min <= 40:
+        vol_tag = "SHORT"
+    elif volume_target_min <= 60:
+        vol_tag = "MEDIUM"
+    else:
+        vol_tag = "LONG"
+
+    block_id = f"BF_RUN_{seance_type}_{phase_name.upper()}_{level.upper()}_{vol_tag}"
+    return block_id
+
+
+def _build_steps_for_ef(volume_target_min: int) -> List[Dict[str, Any]]:
+    """
+    Construction d'une séance EF simple :
+    - pas d'échauffement/spécifique pour le MVP
+    - à raffiner plus tard (split, éducatifs, retour au calme)
+    """
+    return [
+        {
+            "label": "Endurance fondamentale",
+            "type": "E",
+            "duration_min": volume_target_min,
+            "comment": "Allure confortable, respiration aisée.",
         }
+    ]
 
-        slots = []
 
-        # --------------------------
-        # BOUCLE SEMAINE PAR SEMAINE
-        # --------------------------
-        for week_idx in range(nb_semaines):
+def _build_steps_from_block(
+    block_id: str,
+    seance_type: str,
+    volume_target_min: int,
+    level: str,
+    phase_name: str,
+) -> Tuple[List[Dict[str, Any]], float, int, List[str]]:
+    """
+    À terme : mapping complet block_id -> structure de séance.
+    Pour l'instant :
+    - si EF => séance continue
+    - autres types : placeholder simple
+    """
+    seance_type = seance_type.upper()
+    intensity_tags = [seance_type]
 
-            phase = phases_by_week[week_idx]
+    if seance_type == "E" or seance_type == "EF":
+        steps = _build_steps_for_ef(volume_target_min)
+        distance_km = _estimate_distance_km(volume_target_min, level)
+        load = _compute_load(volume_target_min, "E")
+        return steps, distance_km, load, ["E"]
 
-            # --------------------------
-            # BOUCLE JOUR PAR JOUR
-            # --------------------------
-            for i, jour in enumerate(jours):
+    # Placeholder pour les autres types : une seule étape
+    steps = [
+        {
+            "label": f"Séance {seance_type} (MVP)",
+            "type": seance_type,
+            "duration_min": volume_target_min,
+            "comment": f"Séance {seance_type} simple – structure à enrichir.",
+        }
+    ]
+    distance_km = _estimate_distance_km(volume_target_min, level)
+    load = _compute_load(volume_target_min, seance_type)
+    return steps, distance_km, load, intensity_tags
 
-                slot_date = first_dates[jour] + timedelta(weeks=week_idx)
-                intensity_tag = pattern[i % len(pattern)]
 
-                seance = _choose_seance_for_slot(
-                    seances_types=seances_types,
-                    phase=phase,
-                    intensity_tag=intensity_tag,
-                    jour=jour,
-                )
+# -------------------------------------------------------------------
+# Générateur principal de séance RUNNING
+# -------------------------------------------------------------------
 
-                slot_id = f"{record_id}__S{week_idx+1}__{jour}"
+def generate_running_session(
+    run_context: Dict[str, Any],
+    phase_context: Dict[str, Any],
+) -> Dict[str, Any]:
+    """
+    Génère une séance RUNNING complète à partir du run_context et du phase_context.
+    C'est la brique centrale niveau C pour l'univers RUNNING.
+    """
 
-                if seance is None:
-                    slot = {
-                        "semaine": week_idx + 1,
-                        "jour_sem": jour,
-                        "date_cible": slot_date.isoformat(),
-                        "phase": phase,
-                        "categorie_moteur": None,
-                        "charge_coeff": None,
-                        "allure_dominante": None,
-                        "type_seance_nom": None,
-                        "seance_type_id": None,
-                        "status": "planned",
-                        "slot_id": slot_id,
-                    }
-                else:
-                    slot = {
-                        "semaine": week_idx + 1,
-                        "jour_sem": jour,
-                        "date_cible": slot_date.isoformat(),
-                        "phase": phase,
-                        "categorie_moteur": seance.categorie_moteur,
-                        "charge_coeff": seance.charge_coeff,
-                        "allure_dominante": seance.allure_dominante,
-                        "type_seance_nom": seance.nom,
-                        "seance_type_id": seance.id,
-                        "status": "planned",
-                        "slot_id": slot_id,
-                    }
+    profile = run_context.get("profile") or {}
+    objectif = run_context.get("objectif") or {}
+    slot = run_context.get("slot") or {}
+    historique = run_context.get("historique") or []
 
-                slots.append(slot)
+    mode = run_context.get("mode") or "ondemand"
+    seance_type = phase_context.get("seance_type") or phase_context.get("type_seance") or "EF"
+
+    level = _get_level(profile)
+    phase_name = _get_phase_name(phase_context, slot)
+
+    log_info(
+        f"[{MODULE_NAME}] Génération séance RUNNING – "
+        f"mode={mode}, type={seance_type}, level={level}, phase={phase_name}",
+        module=MODULE_NAME,
+    )
+
+    volume_target_min = _compute_volume_target_minutes(
+        level=level,
+        phase_name=phase_name,
+        historique=historique,
+        run_context=run_context,
+    )
+
+    block_id = _select_block_id(
+        seance_type=seance_type,
+        phase_name=phase_name,
+        level=level,
+        volume_target_min=volume_target_min,
+    )
+
+    steps, distance_km, load, intensity_tags = _build_steps_from_block(
+        block_id=block_id,
+        seance_type=seance_type,
+        volume_target_min=volume_target_min,
+        level=level,
+        phase_name=phase_name,
+    )
+
+    title = f"Séance {seance_type.upper()}"
+    description = f"Séance {seance_type.upper()} générée par SmartCoach (niveau {level}, phase {phase_name})."
+
+    session = {
+        "session_id": run_context.get("session_id") or None,
+        "slot_id": slot.get("slot_id"),
+        "plan_id": run_context.get("plan_id"),
+        "user_id": run_context.get("user_id") or "unknown",
+        "title": title,
+        "description": description,
+        "date": slot.get("date"),
+        "phase": phase_name,
+        "type": slot.get("type") or "Séance",
+        "duration_min": volume_target_min,
+        "distance_km": distance_km,
+        "load": load,
+        "intensity_tags": intensity_tags,
+        "steps": steps,
+        "block_id": block_id,
+        "phase_context": phase_context,
+    }
+
+    return session
+
+
+# -------------------------------------------------------------------
+# Wrapper SCN_2 compatible SOCLE (InternalResult)
+# -------------------------------------------------------------------
+
+def run_scn_2(context) -> InternalResult:
+    """
+    Point d'entrée SCN_2 côté scénarios.
+
+    context : objet SOCLE (DummyContext / InternalContext) avec au minimum :
+        - context.payload["run_context"]
+        - context.payload["phase_context"] (optionnel au début)
+    """
+    try:
+        payload = getattr(context, "payload", {}) or {}
+        run_context = payload.get("run_context") or payload
+        phase_context = payload.get("phase_context") or {}
+
+        session = generate_running_session(run_context, phase_context)
 
         return InternalResult.ok(
+            message="SCN_2 – Séance RUNNING générée",
+            source=MODULE_NAME,
             data={
-                "meta": {
-                    "nb_semaines": nb_semaines,
-                    "date_debut_plan": date_debut_plan.isoformat(),
-                    "date_fin_plan": date_objectif.isoformat(),
-                },
-                "slots": slots,
+                "session": session,
+                "phase_context": phase_context,
             },
-            message="SCN_2 terminé (slots générés)",
-            source="SCN_2",
         )
 
     except Exception as e:
-        log_error(f"[SCN_2] Erreur inattendue : {e}")
+        log_error(f"[{MODULE_NAME}] Exception : {e}", module=MODULE_NAME)
         return InternalResult.error(
-            message=f"EXCEPTION: {e}",
+            message=f"Exception SCN_2 : {e}",
+            source=MODULE_NAME,
             data={},
-            source="SCN_2",
-            context=context
         )
-
-

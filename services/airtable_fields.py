@@ -348,6 +348,18 @@ class ATFIELDS:
     MP_SEM_FIN = "Semaine fin"
     MP_PCT_DEBUT = "Pct_debut"
     MP_PCT_FIN = "Pct_fin"
+# =================================================
+# ⚙️ TABLE : Paramètres phases
+# =================================================
+
+    PARAM_PHASE                 = "Phase"
+    PARAM_PHASE_ALLURE          = "Allure dominante"
+    PARAM_PHASE_DUREE_MIN       = "Durée min (min)"
+    PARAM_PHASE_DUREE_MAX       = "Durée max (min)"
+    PARAM_PHASE_DISTANCE_MIN    = "Distance min (km)"
+    PARAM_PHASE_DISTANCE_MAX    = "Distance max (km)"
+    PARAM_PHASE_CHARGE_CIBLE    = "Charge cible"
+    PARAM_PHASE_COMMENTAIRE    = "Commentaire"
 
 
     # ⚠️ Comme toujours : ne pas redéclarer ENVIRONNEMENT ici.

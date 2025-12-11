@@ -2,7 +2,7 @@
 # Extraction des champs Airtable en utilisant ATFIELDS
 
 from core.utils.logger import log_debug
-from services.airtable_fields import ATFIELDS
+from services.airtable_fields import ATFIELDS, FIELDS_PHASES
 
 
 def extract_record_fields(record: dict) -> dict:
@@ -56,3 +56,28 @@ def extract_record_fields(record: dict) -> dict:
         "espacement_max": fields.get(ATFIELDS.RJ_ESPACEMENT_MAX),    
 
     }
+
+def extract_param_phases(records):
+    """
+    Transforme les records Airtable en une liste de dicts normalisés :
+    [
+      { "phase": "Général", "fields": {...}, ... },
+      ...
+    ]
+    """
+    phases = []
+
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+
+        fields = rec.get("fields", {})
+        phase_name = fields.get("Phase") or fields.get("phase")  # tolérance typographique
+
+        phases.append({
+            "id": rec.get("id"),
+            "phase": phase_name,
+            "fields": fields
+        })
+
+    return phases

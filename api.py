@@ -36,7 +36,6 @@ def health():
         "airtable_config_ok": config.valid,
     }
 
-
 # =====================================================
 #      ROUTE PRINCIPALE : /generate_by_id
 # =====================================================

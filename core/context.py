@@ -6,42 +6,29 @@ from pydantic import BaseModel
 class SmartCoachContext(BaseModel):
     """
     Contexte central SmartCoach, partagé entre tous les scénarios.
-    Toutes les étapes (SCN_0a → SCN_6) lisent ou enrichissent ce contexte.
     """
-    course_id: Optional[str] = None       # recXXXXXXXX
-    course_table_id: Optional[str] = None # tblXXXXXXXX
-    
-    # ----------------------------------------------------------
-    # 🌐 Paramètres Airtable
-    # ----------------------------------------------------------
+
+    # --- Identifiants d'exécution ---
+    slot_id: Optional[str] = None        # recXXXXXX__Jour
+    record_id: Optional[str] = None      # recXXXXXX (Coureur)
+
+    # --- Paramètres généraux ---
+    course_id: Optional[str] = None
+    course_table_id: Optional[str] = None
+
+    # --- Airtable ---
     airtable_api_key: Optional[str] = None
     airtable_base_id: Optional[str] = None
 
-    # ----------------------------------------------------------
-    # 🏃 Données coureur : record brut Airtable
-    # ----------------------------------------------------------
+    # --- Données coureur ---
     course_record: Optional[Dict[str, Any]] = None
 
-    # ----------------------------------------------------------
-    # 🔄 Données enrichies au cours des scénarios
-    # ----------------------------------------------------------
-    normalized: Optional[Dict[str, Any]] = None        # sortie SCN_0a
-    optimized_days: Optional[Dict[str, Any]] = None     # sortie SCN_0b
+    # --- Données enrichies par les scénarios ---
+    normalized: Optional[Dict[str, Any]] = None
+    optimized_days: Optional[Dict[str, Any]] = None
+    week_structure: Optional[Dict[str, Any]] = None
+    slots: Optional[Dict[str, Any]] = None
+    phases: Optional[Any] = None
 
-    week_structure: Optional[Dict[str, Any]] = None     # sortie SCN_1 step4
-    slots: Optional[Dict[str, Any]] = None              # sortie SCN_0d
-    phases: Optional[Any] = None                        # sortie SCN_0e
-
-    # ----------------------------------------------------------
-    # 📚 Modèles "Séances Types"
-    # ----------------------------------------------------------
-    models_seance_types: Optional[list] = None
-
-    # ----------------------------------------------------------
-    # 🛠️ Autoriser l'ajout dynamique de champs
-    # ----------------------------------------------------------
-    class Config:
-        extra = "allow"
-    
-
-
+    # --- Pour cohérence SCN_6 ---
+    payload: Optional[Dict[str, Any]] = None

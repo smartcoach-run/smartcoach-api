@@ -12,7 +12,12 @@ from core.internal_result import InternalResult
 from core.utils.logger import root_logger as logger
 from core.internal_result import InternalResult
 
-logger = logging.getLogger("SCN_0g")
+from datetime import datetime
+from typing import Any, Dict
+
+logger = logging.getLogger(__name__)
+
+#logger = logging.getLogger("SCN_0g")
 
 # ==========================================================
 #  Sélection d'environnement (DEV / PROD)
@@ -75,43 +80,96 @@ def _airtable_get(table_id: str, record_id: str | None = None, formula: str | No
 # ==========================================================
 #  Entrée principale SCN_0g
 # ==========================================================
-def run_scn_0g(context):
+# scenarios/agregateur/scn_0g.py
+
+def run_scn_0g(context) -> InternalResult:
     """
-    SOCLE : SCN_0g
-    Validation du slot et du record_id pour la suite du moteur
+    SCN_0g – Version MVP minimale.
+    Objectif :
+        - Vérifier les paramètres obligatoires
+        - Générer une séance simple mais valide
+        - Permettre à SCN_6 de tourner sans erreur
     """
+
     try:
-        payload = getattr(context, "payload", {}) or {}
+        logger.info("[SCN_0g] Début SCN_0g (MVP)")
+        # -----------------------------
+        # 0) Dispatch par model_family
+        # -----------------------------
+        model_family = getattr(context, "model_family", None)
 
-        logger.info(f"[SCN_0g] payload reçu = {payload}")
-        logger.info(f"[SCN_0g] keys = {list(payload.keys())}")
+        if model_family == "MARA_REPRISE_Q1":
+            logger.info("[SCN_0g] Modèle MARA_REPRISE_Q1 détecté")
+            built = build_mara_reprise_q1(context)
 
-        slot_id = payload.get("slot_id")
-        record_id = payload.get("record_id")
+            return InternalResult.ok(
+                data={
+                    "session": built["session"],
+                    "war_room": built.get("war_room", {}),
+                    "phase_context": {}
+                },
+                source="SCN_0g",
+                message="Séance générée via modèle MARA_REPRISE_Q1"
+            )
 
-        logger.info(f"[SCN_0g] slot_id={slot_id}, record_id={record_id}")
+        # 1️⃣ Extraction des paramètres depuis le contexte
+        record_id = getattr(context, "record_id", None)
 
+        slot = getattr(context, "slot", {}) or {}
+        slot_id = slot.get("slot_id")
+
+        # Vérifications minimales
         if not slot_id or not record_id:
-            msg = "slot_id et record_id sont obligatoires pour SCN_0g"
-            logger.error(f"[SCN_0g] {msg}")
+            logger.error("[SCN_0g] slot_id et record_id sont obligatoires pour SCN_0g")
             return InternalResult.error(
-                message=msg,
+                message="slot_id et record_id sont obligatoires pour SCN_0g",
                 source="SCN_0g"
             )
 
-        return InternalResult.ok(
-            {
-                "slot_id": slot_id,
-                "record_id": record_id
+        # 2️⃣ Construction d’une séance MVP cohérente
+        session_block = {
+            "session_id": f"sess_{slot_id}",
+            "slot_id": slot_id,
+            "record_id": record_id,
+            "date": slot.get("date"),
+            "phase": slot.get("phase"),
+            "type": slot.get("type"),
+            "description": "Séance test qualitative (MVP SCN_0g)",
+            "duration_min": 45,
+
+            # Steps simples mais réalistes
+            "steps": [
+                {"type": "E", "duration_min": 15},
+                {
+                    "repeat": 6,
+                    "steps": [
+                        {"type": "R", "duration_sec": 30},
+                        {"type": "E", "duration_sec": 45},
+                    ],
+                },
+                {"type": "E", "duration_min": 10},
+            ],
+
+            "metadata": {
+                "generated_at": datetime.utcnow().isoformat(),
+                "engine_version": "1.0.0-mvp",
+                "socle_version": "SCN_0g",
             },
-            source="SCN_0g"
+        }
+
+        logger.info("[SCN_0g] Séance MVP générée : OK")
+
+        # 3️⃣ Retour normalisé InternalResult
+        return InternalResult.ok(
+            data={"session": session_block, "war_room": {}, "phase_context": {}},
+            source="SCN_0g",
+            message="Séance générée via SCN_0g (MVP)"
         )
 
     except Exception as e:
-        logger.error(f"[SCN_0g] Exception : {e}")
-        traceback.print_exc()
+        logger.error("[SCN_0g] Erreur : %s", e, exc_info=True)
         return InternalResult.error(
-            message=f"Exception SCN_0g : {e}",
+            message=f"Erreur SCN_0g : {e}",
             source="SCN_0g"
         )
 
@@ -353,4 +411,43 @@ def _adapt_model(model: dict, runner: dict, slot: dict, feedback: dict | None = 
         "description": description,
         "conseils": conseils,
         "modele_cle": model.get("Clé séance"),
+    }
+
+def build_mara_reprise_q1(ctx):
+    slot = getattr(ctx, "slot", {}) or {}
+    record_id = getattr(ctx, "record_id", None)
+
+    steps = [
+        {"type": "EF", "duration_min": 20, "zone": "E"},
+        {"type": "BLOCK", "repeats": 3, "steps": [
+            {"type": "QUALITY", "duration_min": 5, "zone": "T_LIGHT"},
+            {"type": "RECOVER", "duration_min": 3, "zone": "E"}
+        ]},
+        {"type": "COOLDOWN", "duration_min": 10, "zone": "E"},
+    ]
+
+    duration = 54
+
+    session = {
+        "session_id": f"sess_{slot.get('slot_id')}",
+        "slot_id": slot.get("slot_id"),
+        "record_id": record_id,
+        "date": slot.get("date"),
+        "phase": slot.get("phase"),
+        "type": slot.get("type"),
+        "steps": steps,
+        "duration_total": duration,
+        "metadata": {
+            "socle_version": "SCN_0g",
+            "engine_version": "1.0",
+            "model_family": "MARA_REPRISE_Q1"
+        }
+    }
+
+    return {
+        "session": session,
+        "war_room": {
+            "chosen_model": "MARA_REPRISE_Q1",
+            "planned_duration": duration
+        }
     }

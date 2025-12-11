@@ -43,6 +43,9 @@ class ATABLES:
     # 🧩 Slots
     REF_SLOTS_ID = os.getenv(f"AIRTABLE_SLOTS_TABLE_{ENV}")
 
+    # ⚙️ Paramètres phases
+    REF_PARAM_PHASES_ID = os.getenv(f"AIRTABLE_PARAM_PHASES_{ENV}")
+
     # ======================================================
     # 📌 TABLES À ID FIXE
     # ======================================================
@@ -64,3 +67,7 @@ class ATABLES:
     MAPPING_PHASES = MAPPING_PHASES_ID
     REF_CATEGORIES_SEANCES = REF_CATEGORIES_SEANCES_ID
     REF_NIVEAUX = REF_NIVEAUX_ID
+    
+REF_SEANCES_TYPES_ID = ATABLES.SEANCES_TYPES_ID
+SEANCES_TYPES_ID = ATABLES.SEANCES_TYPES_ID
+
