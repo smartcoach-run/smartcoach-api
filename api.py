@@ -2,18 +2,22 @@
 
 import logging
 from fastapi import FastAPI, HTTPException
+from ics.ics_builder import build_ics
 from pydantic import BaseModel
 
 from core.config import config               # ← nouvelle config centralisée
 from core.context import SmartCoachContext
 from core.utils.logger import get_logger
 from scenarios.dispatcher import dispatch_scenario
+from ics import router as ics_router
 from selftest import router as selftest_router
 
-
 app = FastAPI()
-logger = logging.getLogger("API")
+
+app.include_router(ics_router)
 app.include_router(selftest_router)
+
+logger = logging.getLogger("API")
 
 # =====================================================
 #      MODELES DE REQUÊTES
