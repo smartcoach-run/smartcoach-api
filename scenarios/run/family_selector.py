@@ -16,29 +16,28 @@ def _get_attr(ctx: Any, name: str, default: Any = None) -> Any:
 
 # ---------- Règles de scoring pour chaque scénario ----------
 
-def _score_sc_001(ctx: Any) -> int:
-    """
-    SC-001 : Homme 40-55 ans, running, reprise, marathon, objectif 3h45.
-    Retourne un score 0-100.
-    """
+def _score_sc_001(ctx):
+    score = 0
 
-    mode = _get_attr(ctx, "mode")
-    submode = _get_attr(ctx, "submode")
-    obj_type = _get_attr(ctx, "objective_type")
-    obj_time = _get_attr(ctx, "objective_time")
-    age = _get_attr(ctx, "age")
+    # 1. Discipline et type
+    if ctx.mode == "running" and ctx.objective_type == "marathon":
+        score += 30
 
-    # Conditions strictes pour l'instant → score binaire 0 ou 100
-    if (
-        mode == "running"
-        and submode == "reprise"
-        and obj_type == "marathon"
-        and obj_time in ("3:45", "3:45:00")
-        and (age is None or 40 <= age <= 55)
-    ):
-        return 100
+    # 2. Niveau / sous-mode
+    if ctx.submode == "reprise":
+        score += 30
 
-    return 0
+    # 3. Age (fourchette 35–55)
+    if ctx.age and 35 <= ctx.age <= 55:
+        score += 20
+
+    # 4. Chrono cible compatible 3h45 (format tolérant)
+    time_raw = str(ctx.objective_time or "").replace(":", "")
+    # exemples acceptés : "345", "0345", "34500", "034500"
+    if "345" in time_raw:
+        score += 20
+
+    return score
 
 
 # ---------- Table des scénarios déclarés ----------

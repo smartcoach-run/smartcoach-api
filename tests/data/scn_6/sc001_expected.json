@@ -1,0 +1,48 @@
+{
+  "session": {
+    "session_id": "sess_slot_test_sc001",
+    "slot_id": "slot_test_sc001",
+    "record_id": "recTEST001",
+    "date": "2025-12-11",
+    "phase": "Reprise",
+    "type": "Q1",
+    "steps": [
+      {
+        "type": "EF",
+        "duration_min": 20,
+        "zone": "E"
+      },
+      {
+        "type": "BLOCK",
+        "repeats": 3,
+        "steps": [
+          {
+            "type": "QUALITY",
+            "duration_min": 5,
+            "zone": "T_LIGHT"
+          },
+          {
+            "type": "RECOVER",
+            "duration_min": 3,
+            "zone": "E"
+          }
+        ]
+      },
+      {
+        "type": "COOLDOWN",
+        "duration_min": 10,
+        "zone": "E"
+      }
+    ],
+    "duration_total": 54,
+    "metadata": {
+      "engine_version": "2.0",
+      "socle_version": "SCN_0g_v1.1",
+      "family": "MARA_REPRISE_Q1"
+    }
+  },
+  "war_room": {
+    "scenario_id": "SC-001",
+    "model_family": "MARA_REPRISE_Q1"
+  }
+}

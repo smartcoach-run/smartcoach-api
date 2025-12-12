@@ -8,10 +8,12 @@ from core.config import config               # ← nouvelle config centralisée
 from core.context import SmartCoachContext
 from core.utils.logger import get_logger
 from scenarios.dispatcher import dispatch_scenario
+from selftest import router as selftest_router
+
 
 app = FastAPI()
 logger = logging.getLogger("API")
-
+app.include_router(selftest_router)
 
 # =====================================================
 #      MODELES DE REQUÊTES
