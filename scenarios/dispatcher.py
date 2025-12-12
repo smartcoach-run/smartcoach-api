@@ -66,7 +66,12 @@ def dispatch_scenario(scn_name: str, record_id: str, payload: dict = None):
             data_scn1 = norm_res.data
 
         # Appel SCN_2 avec data_scn1 en entrée
-        return run_scn_2(context, data_scn1)
+        # injecte data_scn1 dans le payload, puis appelle SCN_2 en mono-argument
+        context.payload = context.payload or {}
+        if data_scn1 is not None:
+            context.payload["data_scn1"] = data_scn1
+
+        return run_scn_2(context)
 
     # ======================================================
     # SCN_3 — Non implémenté

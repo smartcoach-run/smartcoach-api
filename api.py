@@ -87,4 +87,12 @@ async def generate_session(body: GenerateRequest):
 
     except Exception as e:
         logger.exception(f"Erreur dans generate_session : {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {
+            "success": false,
+            "status": "error",
+            "message": f"Erreur API : {e}",
+            "source": "API",
+            "data": null,
+            "context": null
+        }
+
