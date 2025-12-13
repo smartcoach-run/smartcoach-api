@@ -1,6 +1,7 @@
 # api.py
 
 import logging
+from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException
 from ics.ics_builder import build_ics
 from pydantic import BaseModel
@@ -28,6 +29,16 @@ class GenerateRequest(BaseModel):
     record_id: str
     payload: dict | None = None
 
+class GenerateSessionRequest(BaseModel):
+    """
+    Requête minimale pour SCN_0g (Step6 OnDemand).
+    Alignée avec SCN_0g V1.
+    """
+    slot: Dict[str, Any]
+
+    # Champs optionnels pour compatibilité future
+    scenario: Optional[str] = None
+    record_id: Optional[str] = None
 
 # =====================================================
 #      HEALTH CHECK
@@ -60,39 +71,79 @@ async def generate(body: GenerateRequest):
 #      ROUTE SPÉCIALE : /generate_sessions
 # =====================================================
 
-@app.post("/generate_session")
-async def generate_session(body: GenerateRequest):
-    """
-    Endpoint dédié Step6 OnDemand.
-    - scenario doit être "SCN_6" (ou on impose SCN_6 en dur).
-    - record_id = coureur Airtable
-    - payload.slot_id = identifiant du slot à générer
-    """
+from scenarios.socle.scn_0g import run_scn_0g
 
-    logger.info(f"API → generate_session (SCN_6) pour record_id={body.record_id}")
+@app.post("/generate_session")
+async def generate_session(body: GenerateSessionRequest):
+    """
+    Endpoint technique Step6-OnDemand.
+    Appelle directement le SOCLE SCN_0g.
+    """
+    logger.info("API → generate_session (SOCLE SCN_0g)")
 
     try:
-        # On force le scénario à SCN_6 pour éviter les erreurs de saisie
-        result = dispatch_scenario(
-            scn_name="SCN_6",
+        context = SmartCoachContext(
+            scenario="SCN_0g",
             record_id=body.record_id,
-            payload=body.payload or {}
+            payload={
+                "slot": body.slot
+            }
         )
+
+        result = run_scn_0g(context)
 
         return {
             "status": "ok",
-            "message": "SCN_6 terminé avec succès (Step6 OnDemand)",
+            "message": "SCN_0g exécuté avec succès",
             "data": result
         }
 
     except Exception as e:
         logger.exception(f"Erreur dans generate_session : {e}")
         return {
-            "success": false,
+            "success": False,
             "status": "error",
             "message": f"Erreur API : {e}",
             "source": "API",
-            "data": null,
-            "context": null
+            "data": None,
+            "context": None
+        }
+# =====================================================
+#      ROUTE DEBUG SOCLE : /socle/scn_0h_exec
+# =====================================================
+
+from scenarios.socle.scn_0h import run_scn_0h
+
+class PersistSlotRequest(BaseModel):
+    slot: Dict[str, Any]
+    record_id: str
+
+@app.post("/socle/scn_0h_exec")
+async def socle_scn_0h_exec(body: PersistSlotRequest):
+    """
+    Route TECHNIQUE de debug local pour SCN_0h.
+    ❌ Jamais appelée par Make
+    """
+    logger.info("API → socle/scn_0h_exec (DEBUG SOCLE)")
+
+    try:
+        context = SmartCoachContext(
+            scenario="SCN_0h",
+            record_id=body.record_id,
+            payload={}
+        )
+
+        result = run_scn_0h(
+            context=context,
+            slot=body.slot
+        )
+
+        return {
+            "status": "ok",
+            "message": "SCN_0h exécuté avec succès",
+            "data": result
         }
 
+    except Exception as e:
+        logger.exception(f"Erreur SCN_0h : {e}")
+        raise HTTPException(status_code=500, detail=str(e))

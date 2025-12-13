@@ -1,3 +1,8 @@
+# ⚠️ IMPORTANT
+# SCN_0h = persistance STRUCTURE du planning (slots, phases, jours)
+# Ne pas utiliser ce module pour persister une exécution de séance.
+# Pour cela, utiliser SCN_0h_exec.
+
 # ==========================================================
 # SCN_0h — SOCLE — Upsert d’un slot dans Airtable
 # ==========================================================
@@ -5,9 +10,11 @@
 import logging
 from core.internal_result import InternalResult
 from services.airtable_service import AirtableService
+from services.airtable_tables import ATABLES
 from core.utils.logger import log_info
 
 logger = logging.getLogger("SCN_0h")
+ATABLES.SLOTS
 
 def run_scn_0h(context, slot: dict):
     """
@@ -43,10 +50,11 @@ def run_scn_0h(context, slot: dict):
 
     try:
         service = AirtableService()     
-        record = AirtableService.upsert_record(
-            table_name="Slots",
-            record_id=slot_id,
-            fields=fields
+        record = service.upsert_record(
+            ATABLES.SLOTS,      # table_id
+            "Slot_ID",          # key_field (champ Airtable)
+            slot_id,            # key_value
+            fields              # fields
         )
 
         return InternalResult.ok(
