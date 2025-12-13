@@ -1,3 +1,5 @@
+# ICS stable – ne pas modifier sans test local + import agenda
+# Le 13/12/2025
 from datetime import datetime, timedelta
 from uuid import uuid4
 
