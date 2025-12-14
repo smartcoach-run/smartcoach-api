@@ -1,0 +1,21 @@
+{
+  "record_id": "recx17IZI1IyzYPX3",
+  "payload": {
+    "run_context": {
+      "slot": {
+        "slot_id": "recx17IZI1IyzYPX3__S3__Dimanche",
+        "date": "2025-12-15"
+      },
+      "profile": {
+        "mode": "running",
+        "submode": "endurance",
+        "age": 42
+      },
+      "objective": {
+        "type": "distance",
+        "time": null
+      },
+      "objectif_normalisé": "RUN_PLAISIR"
+    }
+  }
+}

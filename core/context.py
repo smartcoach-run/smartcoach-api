@@ -10,11 +10,19 @@ class SmartCoachContext(BaseModel):
 
     # --- Identifiants d'exécution ---
     slot_id: Optional[str] = None        # recXXXXXX__Jour
-    record_id: Optional[str] = None      # recXXXXXX (Coureur)
+    record_id: Optional[str] = None      # recXXXXXX (Coureur)   
 
     # --- Paramètres généraux ---
     course_id: Optional[str] = None
     course_table_id: Optional[str] = None
+    slot_date: Optional[str] = None 
+    objective_type: Optional[str] = None
+    objective_time: Optional[str] = None
+    objectif_normalisé: Optional[str] = None 
+    age: Optional[str] = None 
+    mode: Optional[str] = None 
+    submode: Optional[str] = None 
+    war_room: Optional[str] = None 
 
     # --- Airtable ---
     airtable_api_key: Optional[str] = None

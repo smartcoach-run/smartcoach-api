@@ -1,27 +1,21 @@
 {
-  "scenario": "SCN_6",
-  "record_id": "recTEST001",
+  "record_id": "recxMARATHON001",
   "payload": {
-    "mode": "ondemand",
     "run_context": {
-      "profile": {
-        "age": 45,
-        "genre": "Homme",
-        "vdot": 51
-      },
-      "objectif": {
-        "discipline": "Running",
-        "type": "Marathon",
-        "experience": "Reprise",
-        "chrono_cible": "03:45:00"
-      },
       "slot": {
-        "slot_id": "slot_test_sc001",
-        "date": "2025-12-11",
-        "phase": "Reprise",
-        "type": "Q1"
+        "slot_id": "recxMARATHON001__S1__Dimanche",
+        "date": "2025-04-13"
       },
-      "historique": []
+      "profile": {
+        "mode": "running",
+        "submode": "reprise",
+        "age": 38
+      },
+      "objective": {
+        "type": "marathon",
+        "time": "03:45:00"
+      },
+      "objectif_normalisé": null
     }
   }
 }

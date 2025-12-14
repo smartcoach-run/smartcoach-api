@@ -6,8 +6,8 @@ def load_json(path):
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-def test_scn_6_sc001_snapshot():
-    input_json = load_json("tests/data/scn_6/sc001_input.json")
+def test_scn_6_sc002_snapshot():
+    input_json = load_json("tests/data/scn_6/sc002_input.json")
 
     result = run_scn_6(
         payload=input_json["payload"],
@@ -16,8 +16,7 @@ def test_scn_6_sc001_snapshot():
 
     assert result.success, f"Erreur retournée : {result.message}"
 
-    # Snapshot complet (résultat fonctionnel)
     assert_snapshot(
         actual=result.data,
-        expected_file="tests/data/scn_6/sc001_expected.json"
+        expected_file="tests/data/scn_6/sc002_expected.json"
     )

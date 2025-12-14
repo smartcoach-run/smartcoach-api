@@ -1,7 +1,7 @@
 {
   "session": {
     "title": "Séance Endurance fondamentale",
-    "date": "2025-04-13",
+    "date": "2025-12-15",
     "duration_min": 40,
     "steps": [
       {
@@ -15,21 +15,21 @@
     ]
   },
   "war_room": {
-    "objectif_normalisé": null,
+    "objectif_normalisé": "RUN_PLAISIR",
     "inputs": {
       "mode": "running",
-      "submode": "reprise",
-      "objective_type": "marathon",
-      "objective_time": null,
-      "age": 38
+      "submode": "endurance",
+      "objective_type": "distance",
+      "objective_time": "RUN_PLAISIR",
+      "age": 42
     },
-    "scenario_id": "SC-001",
-    "model_family": "MARA_REPRISE_Q1",
+    "scenario_id": "SC-002",
+    "model_family": "GENERIC_EF_Q1",
     "scores": {
-      "SC-001": 70,
-      "SC-002": 10
+      "SC-001": 20,
+      "SC-002": 70
     },
-    "type_cible": "T",
+    "type_cible": "E",
     "airtable_update": "Type_cible written"
   }
 }

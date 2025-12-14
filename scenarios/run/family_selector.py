@@ -20,7 +20,7 @@ def _score_sc_001(ctx):
     score = 0
 
     # 1. Discipline et type
-    if ctx.mode == "running" and ctx.objective_type == "marathon":
+    if getattr(ctx, "objectif_normalisé", None) == "RUN_M":
         score += 30
 
     # 2. Niveau / sous-mode
@@ -39,6 +39,19 @@ def _score_sc_001(ctx):
 
     return score
 
+def _score_sc_002(ctx):
+    score = 0
+
+    # 1. Running plaisir (clé pivot Airtable)
+    if getattr(ctx, "objectif_normalisé", None) == "RUN_PLAISIR":
+        score += 60   # suffisant pour passer le seuil
+
+    # 2. Adulte / reprise (papa de 40 ans 😄)
+    if ctx.age and ctx.age >= 35:
+        score += 10
+
+    return score
+
 
 # ---------- Table des scénarios déclarés ----------
 
@@ -50,6 +63,11 @@ SCENARIO_RULES: List[ScenarioRule] = [
         "family": "MARA_REPRISE_Q1",
         "score_fn": _score_sc_001,
     },
+       {
+        "id": "SC-002",
+        "family": "GENERIC_EF_Q1",
+        "score_fn": _score_sc_002,
+    }, 
     # Plus tard :
     # {
     #   "id": "SC-002",
@@ -61,7 +79,7 @@ SCENARIO_RULES: List[ScenarioRule] = [
 
 # ---------- Sélection principale (RG-00) ----------
 
-def select_scenario_and_family(ctx: Any) -> Tuple[str, str, Dict[str, int]]:
+def scenario_and_family(ctx: Any) -> Tuple[str, str, Dict[str, int]]:
     """
     Mécanisme RG-00 :
     - interroge chaque scénario,
