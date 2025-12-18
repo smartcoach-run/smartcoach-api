@@ -144,6 +144,23 @@ class AirtableService:
         """
         return self.list_all(table_id)
 
+    # ---------------------------------------------------------
+    # Alias standard : list_records()
+    # Attendu par SCN_SLOT_RESOLVER / futurs scénarios
+    # ---------------------------------------------------------
+    def list_records(
+        self,
+        table_id: str,
+        filter_by_formula: str | None = None,
+    ) -> list:
+        """
+        Façade standard pour lister des records Airtable.
+        Compatible avec SCN_SLOT_RESOLVER et futurs scénarios.
+        """
+        if filter_by_formula:
+            return self.find_all(table_id, filter_by_formula)
+        return self.list_all(table_id)
+
     def get_session_types(self):
         """
         Retourne tous les records de la table 📘 Séances Types

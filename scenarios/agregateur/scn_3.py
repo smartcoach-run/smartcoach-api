@@ -3,6 +3,7 @@
 # =====================================================================
 
 from utils.session_types_utils import map_record_to_session_type
+
 import logging
 
 logger = logging.getLogger("SCN_3")

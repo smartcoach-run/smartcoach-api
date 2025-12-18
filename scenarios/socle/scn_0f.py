@@ -3,6 +3,7 @@ SCN_0f — Construction du JSON final (structure-only)
 SOCLE v2025-11
 """
 import logging
+
 from core.utils.logger import log_info, log_error, log_warning, log_debug
 
 log = logging.getLogger("SCN_0f")

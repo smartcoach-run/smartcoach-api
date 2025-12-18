@@ -3,20 +3,33 @@
 import logging
 from typing import Optional, Dict, Any
 from fastapi import FastAPI, HTTPException
-from ics.ics_builder import build_ics
+
 from pydantic import BaseModel
 
 from core.config import config               # ← nouvelle config centralisée
 from core.context import SmartCoachContext
 from core.utils.logger import get_logger
+
+from ics.router import router as ics_router
+from ics.ics_builder import build_ics
+
+from routes.selftest import router as selftest_router
+from routes.resolve_slot import router as resolve_slot_router
+
+from qa.registry_scn_6 import QA_SCN_6
 from scenarios.dispatcher import dispatch_scenario
-from ics import router as ics_router
-from selftest import router as selftest_router
+from scenarios.agregateur.scn_6 import run_scn_6
+from scenarios.socle.scn_0g import run_scn_0g
+from scenarios.socle.scn_0h import run_scn_0h
+
+from tests.utils.snapshot import assert_snapshot
+from tests.utils.helpers  import load_json
 
 app = FastAPI()
 
 app.include_router(ics_router)
 app.include_router(selftest_router)
+app.include_router(resolve_slot_router)
 
 logger = logging.getLogger("API")
 
@@ -71,8 +84,6 @@ async def generate(body: GenerateRequest):
 #      ROUTE SPÉCIALE : /generate_sessions
 # =====================================================
 
-from scenarios.socle.scn_0g import run_scn_0g
-
 @app.post("/generate_session")
 async def generate_session(body: GenerateSessionRequest):
     """
@@ -112,8 +123,6 @@ async def generate_session(body: GenerateSessionRequest):
 #      ROUTE DEBUG SOCLE : /socle/scn_0h_exec
 # =====================================================
 
-from scenarios.socle.scn_0h import run_scn_0h
-
 class PersistSlotRequest(BaseModel):
     slot: Dict[str, Any]
     record_id: str
@@ -147,3 +156,65 @@ async def socle_scn_0h_exec(body: PersistSlotRequest):
     except Exception as e:
         logger.exception(f"Erreur SCN_0h : {e}")
         raise HTTPException(status_code=500, detail=str(e))
+# =========================
+# QA ENDPOINTS
+# =========================
+@app.get("/qa/run/scn_6")
+def run_qa_scn_6():
+    logger.info("[QA][SCN_6] Lancement de la suite QA")
+
+    results = []
+
+    logger.info(f"[QA][SCN_6] {len(QA_SCN_6)} test(s) détecté(s)")
+
+    for test in QA_SCN_6:
+        test_id = test.get("test_id", "UNKNOWN_TEST")
+
+        try:
+            logger.info(f"[QA][SCN_6] ▶️ Test {test_id}")
+
+            input_json = load_json(test["input_file"])
+
+            result = run_scn_6(
+                payload=input_json["payload"],
+                record_id=input_json.get("record_id")
+            )
+
+            if not result.success:
+                raise AssertionError(result.message)
+
+            assert_snapshot(
+                actual=result.data,
+                expected_file=test["expected_file"]
+            )
+
+            results.append({
+                "test_id": test_id,
+                "status": "PASSED"
+            })
+
+            logger.info(f"[QA][SCN_6] ✅ Test {test_id} PASSED")
+
+        except Exception as e:
+            logger.error(f"[QA][SCN_6] ❌ Test {test_id} FAILED : {e}")
+
+            results.append({
+                "test_id": test_id,
+                "status": "FAILED",
+                "error": str(e)
+            })
+
+    passed = len([r for r in results if r["status"] == "PASSED"])
+    failed = len([r for r in results if r["status"] == "FAILED"])
+
+    return {
+        "success": failed == 0,
+        "suite": "SCN_6",
+        "summary": {
+            "total": len(results),
+            "passed": passed,
+            "failed": failed
+        },
+        "results": results
+    }
+

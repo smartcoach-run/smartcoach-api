@@ -1,7 +1,7 @@
 import logging
-from services.airtable_service import AirtableService
-import services.airtable_tables as ATABLES
-import services.airtable_fields as AFIELDS
+from smartcoach_api.services.airtable_service import AirtableService
+import smartcoach_api.services.airtable_tables as ATABLES
+import smartcoach_api.services.airtable_fields as AFIELDS
 
 logger = logging.getLogger("ROOT")
 

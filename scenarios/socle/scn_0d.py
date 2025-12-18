@@ -7,6 +7,7 @@
 # ============================================================
 
 from core.utils.logger import get_logger
+
 log = get_logger("SCN_0d")
 
 def run_scn_0d(jours_retenus, jours_relatifs, nb_semaines):

@@ -41,9 +41,6 @@ def run_scn_7(context):
     log_info(f"[SCN_7] slot_id={slot_id}")
 
     # Construction des champs de stockage
-    # slot_id fallback volontaire :
-    # SCN_7 accepte des payloads incomplets (orchestration Make)
-    # et ne bloque jamais la chaîne    
     fields = {
         "Slot ID": slot_id,
         "Date": slot.get("date"),

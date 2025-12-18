@@ -3,6 +3,7 @@ from typing import Any, Dict
 
 from core.internal_result import InternalResult
 from core.context import SmartCoachContext
+
 from scenarios.socle.scn_0g import run_scn_0g
 from scenarios.run.family_selector import scenario_and_family
 from services.airtable_service import AirtableService

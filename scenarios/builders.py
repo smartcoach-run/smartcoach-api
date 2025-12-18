@@ -13,7 +13,6 @@ from services.airtable_fields import ATFIELDS, get_field
 from services.airtable_tables import ATABLES
 from core.utils.logger import log_info, log_warning
 
-
 # -------------------------------------------------------------
 # STEP 3 – MODE RUNNING
 #  - Sélection des jours finaux

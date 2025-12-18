@@ -90,3 +90,18 @@ class InternalResult:
     # -----------------------------------------------------------------
     def __repr__(self):
         return f"InternalResult(status={self.status}, message={self.message}, data={self.data})"
+    # -----------------------------------------------------------------
+    #   API serialization
+    # -----------------------------------------------------------------
+    def to_api(self) -> dict:
+        """
+        Format standard exposé par l'API SmartCoach.
+        """
+        return {
+            "success": self.success,
+            "status": self.status,
+            "message": self.message,
+            "data": self.data,
+            "context": self.context,
+            "source": self.source,
+        }

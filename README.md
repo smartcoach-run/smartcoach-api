@@ -1,33 +1,36 @@
-🧠 SmartCoach — Moteur de scénarios (README)
-🎯 Objectif
+🎯 Objectif du document
 
-Ce document fige les invariants fonctionnels et techniques du moteur SmartCoach après stabilisation de SCN_6, SC-001, SC-002 et SCN_0g V1.
+Ce document fige l’état stable du moteur SmartCoach après validation complète de :
 
-Il sert de point de repère pour :
+SCN_6 (orchestrateur)
 
-éviter les régressions,
+SC-001 (Running – progression structurée)
 
-comprendre rapidement le rôle de chaque composant,
+SC-002 (Running – plaisir / reprise adulte)
 
-préparer les évolutions (vNext) sans casser l’existant.
+SCN_0g V1 (générateur legacy)
 
-🧩 Vue d’ensemble
-Entrée (Make / Postman / API)
-        ↓
-     SCN_6
-  (orchestrateur)
-        ↓
- Sélection SC-00x
-        ↓
-     SCN_0g
- (génération séance)
-        ↓
+Suite de tests QA SCN_6 (local + Fly)
+
+Il sert de référence de non-régression avant toute évolution.
+
+🧩 Vue d’ensemble (architecture stabilisée)
+Entrée (Make / Postman / QA API)
+            ↓
+          SCN_6
+      (orchestrateur)
+            ↓
+     Sélection SC-00x
+            ↓
+         SCN_0g
+     (génération séance)
+            ↓
    Résultat + Airtable
 
 🧠 Rôle des composants
-🔹 SCN_6 — Orchestrateur
+🔹 SCN_6 — Orchestrateur (STABLE)
 
-Point d’entrée principal du moteur
+Point d’entrée principal du moteur.
 
 Responsabilités :
 
@@ -37,69 +40,112 @@ scoring multi-scénarios
 
 sélection déterministe du scénario
 
+calcul du type_cible
+
 préparation du contexte pour le générateur
 
-❌ Ne lit pas Airtable directement
+Invariants :
 
-🔹 SC-001 — Running progression structurée
+❌ ne lit pas Airtable
+
+❌ ne reconstruit pas l’intention métier
+
+✅ consomme un contexte déjà normalisé
+
+🔹 SC-001 — Running / progression structurée (RÉFÉRENCE)
 
 Cas d’usage :
 
-marathon / objectif chrono
+préparation marathon
+
+objectif chronométré
 
 Signaux clés :
 
 mode = running
 
-objectif marathon
+objective_type = marathon
 
 chrono cible compatible
 
-Toujours conservé pour non-régression
+tranche d’âge cohérente
 
-🔹 SC-002 — Running plaisir / reprise adulte
+Statut :
+
+test de non-régression absolu
+
+toute évolution qui casse SC-001 est bloquante
+
+🔹 SC-002 — Running plaisir / reprise adulte (RÉFÉRENCE)
 
 Cas d’usage :
 
-reprise, plaisir, vitalité
+reprise douce
+
+plaisir / vitalité
+
+absence d’objectif chrono
 
 Clé pivot :
 
 objectif_normalisé = RUN_PLAISIR
 
-Génère des séances simples, EF, non chronométrées
+Comportement :
 
-🔹 SCN_0g V1 — Générateur minimal (legacy)
+séances simples
 
-Génère une séance minimale à partir d’un slot
+endurance fondamentale
+
+logique non chronométrée
+
+Statut :
+
+test de non-régression absolu
+
+scénario socle pour extensions futures (Vitalité, Santé, etc.)
+
+🔹 SCN_0g V1 — Générateur legacy (FIGÉ)
+
+Rôle :
+
+génération minimale d’une séance à partir d’un slot
 
 Lit exclusivement :
 
 context.payload["slot"]
 
 
-Ne lit PAS :
+Ne lit pas :
 
 context.slot_date
 
 context.slot_id
 
-Aucune dépendance externe
-
-Version figée (V1)
-
-🔹 SCN_0g vNext — Cible future
-
-Version context-first
-
-Lira directement :
-
-context.slot_date
-context.type_cible
 context.profile
 
+Contraintes :
 
-Supprimera le besoin du payload legacy
+aucune dépendance externe
+
+comportement figé
+
+utilisé uniquement via SCN_6
+
+🔹 SCN_0g vNext — Cible future (NON ACTIVE)
+
+Évolutions prévues :
+
+lecture directe du contexte
+
+suppression du payload legacy
+
+génération plus riche et adaptative
+
+Statut :
+
+non utilisée
+
+ne doit pas être appelée en production
 
 📥 Contrat d’entrée — run_context (INVARIANT)
 
@@ -116,23 +162,26 @@ SCN_6 consomme un contexte déjà normalisé :
     "age": number
   },
   "objective": {
-    "type": "distance | temps | null",
+    "type": "distance | temps | marathon | null",
     "time": "HH:MM:SS | null"
   },
-  "objectif_normalisé": "RUN_PLAISIR | RUN_M | ..."
+  "objectif_normalisé": "RUN_PLAISIR | M | ..."
 }
 
 
-👉 Règle : SCN_6 ne reconstruit pas l’intention métier.
+📌 Règle d’or
+
+SCN_6 ne reconstruit jamais l’intention métier
 Elle est fournie en amont (Airtable / Make).
 
-🔑 Invariants métier (à ne pas casser)
-
+🔑 Invariants métier (à ne jamais casser)
 🔒 objectif_normalisé
 
-clé pivot entre Airtable et moteur
+clé pivot Airtable ↔ moteur
 
 détermine le scénario
+
+source de vérité
 
 🔒 type_cible
 
@@ -169,20 +218,53 @@ documentée
 
 👉 À supprimer lors de la bascule vers scn_0g_vNext.
 
-🧪 Tests de référence (non-régression)
+🧪 Validation & QA (NOUVEAU – STABLE)
+✔️ Tests de référence
 
-Deux cas doivent toujours fonctionner :
+Deux scénarios doivent toujours passer :
 
 ✅ SC-001 — Marathon / progression structurée
 
 ✅ SC-002 — Running plaisir / reprise
 
-Toute évolution qui casse l’un de ces deux tests doit être stoppée.
+✔️ Suite QA SCN_6 (API)
 
-🧭 Prochaines évolutions prévues
+Un endpoint dédié permet d’exécuter tous les scénarios de test en une fois :
 
-Bascule vers scn_0g_vNext (suppression du payload legacy)
+GET /qa/run/scn_6
 
-Enrichissement de SC-002 (volume, progressivité douce)
 
-Ajout de nouveaux scénarios (Vitalité, Kids, Hyrox)
+Retour type :
+
+{
+  "success": true,
+  "suite": "SCN_6",
+  "summary": {
+    "total": 2,
+    "passed": 2,
+    "failed": 0
+  },
+  "results": [
+    { "test_id": "SCN_6_SC001", "status": "PASSED" },
+    { "test_id": "SCN_6_SC002", "status": "PASSED" }
+  ]
+}
+
+
+✔️ Validé :
+
+en local
+
+sur Fly.io
+
+🧭 Prochaines évolutions (HORS PÉRIMÈTRE ACTUEL)
+
+organisation globale des validations QA (CI, regroupement)
+
+bascule vers scn_0g_vNext
+
+enrichissement SC-002
+
+ajout scénarios Vitalité / Kids / Hyrox
+
+📌 Aucune de ces évolutions ne doit casser SC-001 / SC-002.
