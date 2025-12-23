@@ -1,94 +1,131 @@
-# scn_slot_resolver.py
-
-from core.internal_result import InternalResult
+from datetime import datetime, timedelta
 from services.airtable_service import AirtableService
 from services.airtable_tables import ATABLES
-from core.utils.logger import get_logger
 
-logger = get_logger("SCN_SLOT_RESOLVER")
+airtable = AirtableService()
 
-from datetime import date
+# -------------------------------------------------
+# FIRST = création du tout premier slot
+# -------------------------------------------------
+def run_first(payload: dict):
+    coureur_id = payload["coureur_id"]
 
-def normalize_slot(rec):
-    f = rec.get("fields", {}) or {}
+    records = airtable.list_records(
+        ATABLES.SLOTS,
+        filter_by_formula=f"AND({{Coureur_ID}} = '{coureur_id}', {{status}} = 'planned')"
+    )
 
-    slot_id = (f.get("Slot ID") or "").strip()
-    if not slot_id:
-        slot_id = rec["id"]
+    if not records:
+        return {
+            "success": False,
+            "status": "error",
+            "message": "Aucun slot FIRST trouvé",
+            "source": "SCN_SLOT_RESOLVER"
+        }
 
-    slot_id = " ".join(slot_id.split())
+    # on prend le premier slot planned (pas de tri, pas de magie)
+    r = records[0]
+    fields = r.get("fields", {})
 
-    status = (f.get("Status") or f.get("Statut") or "").strip().lower()
-
-    return {
-        "slot_record_id": rec["id"],
-        "slot_id": slot_id,
-        "date": f.get("Date"),
-        "status": status,
-        "type": (f.get("Type") or "").strip(),
+    slot = {
+        "slot_id": r["id"],
+        "date": fields.get("Date_slot"),
+        "week_index": fields.get("week_index"),
+        "day_index": fields.get("day_index"),
     }
 
-def run_scn_slot_resolver(coureur_id: str, mode: str):
-    if mode not in ("FIRST", "NEXT", "FEEDBACK"):
-        return InternalResult.error(
-            message=f"Mode invalide pour SCN_SLOT_RESOLVER: {mode}",
-            source="SCN_SLOT_RESOLVER",
-        )
+    return {
+        "success": True,
+        "status": "ok",
+        "data": {
+            "slot": slot,
+            "reason": "first_planned"
+        },
+        "source": "SCN_SLOT_RESOLVER"
+    }
 
-    airtable = AirtableService()
+# -------------------------------------------------
+# NEXT = génération du slot suivant (1 seul)
+# -------------------------------------------------
+def run_next(payload: dict):
+    coureur_id = payload["coureur_id"]
+    current_date = payload.get("current_slot_date")
 
-    slots = airtable.list_records(
-        ATABLES.SLOTS,
-        filter_by_formula=f"{{Coureur_ID}} = '{coureur_id}'"
-    )
+    if not current_date:
+        return {
+            "success": False,
+            "status": "error",
+            "message": "current_slot_date manquant",
+            "source": "SCN_SLOT_RESOLVER"
+        }
 
-    if not slots:
-        return InternalResult.error(
-            message="Aucun slot trouvé pour ce coureur",
-            source="SCN_SLOT_RESOLVER",
-        )
+    coureur_record = airtable.get_record(ATABLES.COU_TABLE, coureur_id)
+    fields = coureur_record.get("fields", {}) if coureur_record else {}
+    dispos = fields.get("dispos", [])
 
-    norm = [normalize_slot(r) for r in slots if r.get("fields")]
+    if not dispos:
+        return {
+            "success": False,
+            "status": "error",
+            "message": "Aucune disponibilité définie",
+            "source": "SCN_SLOT_RESOLVER"
+        }
 
-    if not norm:
-        return InternalResult.error(
-            message="Aucun slot normalisable",
-            source="SCN_SLOT_RESOLVER",
-        )
+    date = datetime.fromisoformat(current_date)
 
-    eligible = [s for s in norm if s["status"] == "planned"]
+    for _ in range(14):  # max 2 semaines
+        date += timedelta(days=1)
+        if date.weekday() in dispos:
+            break
+    else:
+        return {
+            "success": False,
+            "status": "error",
+            "message": "Aucun slot compatible trouvé",
+            "source": "SCN_SLOT_RESOLVER"
+        }
+
+    slot = {
+        "slot_id": f"AUTO_{date.date()}",
+        "date": date.date().isoformat(),
+        "day_index": date.weekday()
+    }
+
+    return {
+        "success": True,
+        "status": "ok",
+        "data": {
+            "slot": slot,
+            "reason": "next_created"
+        },
+        "source": "SCN_SLOT_RESOLVER"
+    }
+
+
+# -------------------------------------------------
+# POINT D’ENTRÉE UNIQUE APPELÉ PAR L’API
+# -------------------------------------------------
+def run_scn_slot_resolver(
+    coureur_id: str,
+    mode: str,
+    current_slot_date: str | None = None
+):
+    mode = mode.upper().strip()
 
     if mode == "FIRST":
-        if not eligible:
-            return InternalResult.error(
-                message="Aucun slot planned trouvé",
-                source="SCN_SLOT_RESOLVER",
-            )
+        return run_first({
+            "coureur_id": coureur_id
+        })
 
-        eligible.sort(key=lambda s: s["slot_id"])
-        selected = eligible[0]
+    if mode == "NEXT":
+        return run_next({
+            "coureur_id": coureur_id,
+            "current_slot_date": current_slot_date
+        })
 
-        logger.info(f"SLOTS TOTAL={len(norm)} | ELIGIBLE={len(eligible)}")
-        logger.info(
-            f"SLOT SELECTED → slot_id={selected['slot_id']} "
-            f"status={selected['status']} "
-            f"date={selected['date']}"
-        )
-
-        return InternalResult.ok(
-            data={
-                "slot": {
-                    "slot_id": selected["slot_id"],
-                    "date": selected["date"],
-                    "type": selected["type"],
-                },
-                "reason": "first_planned",
-            },
-            source="SCN_SLOT_RESOLVER",
-        )
-
-    # autres modes volontairement non traités ici
-    return InternalResult.error(
-        message="Mode non implémenté",
-        source="SCN_SLOT_RESOLVER",
-    )
+    return {
+        "success": False,
+        "status": "error",
+        "message": f"Mode non implémenté : {mode}",
+        "source": "SCN_SLOT_RESOLVER"
+    }

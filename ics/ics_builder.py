@@ -2,8 +2,38 @@
 # Le 13/12/2025
 from datetime import datetime, timedelta
 from uuid import uuid4
+from core.internal_result import InternalResult
+from core.utils.logger import log_error, log_info
 
+MODULE_NAME = "ICS"
 
+def run_generate_ics(context) -> InternalResult:
+    try:
+        payload = getattr(context, "payload", {}) or {}
+        session = payload.get("session")
+
+        if not session:
+            raise ValueError("ICS: session manquante dans le payload")
+
+        ics_content = build_ics(session)
+
+        log_info("[ICS] Fichier ICS généré", module=MODULE_NAME)
+
+        return InternalResult.ok(
+            message="ICS généré",
+            source=MODULE_NAME,
+            data={
+                "ics": ics_content
+            }
+        )
+
+    except Exception as e:
+        log_error(f"[ICS] Exception : {e}", module=MODULE_NAME)
+        return InternalResult.error(
+            message=f"Exception ICS : {e}",
+            source=MODULE_NAME,
+            data={}
+        )
 def build_ics(session: dict, start_hour: int = 7) -> str:
     """
     Génère un contenu ICS à partir d'une session SmartCoach
@@ -70,8 +100,22 @@ DTSTART:{fmt(start_dt)}
 DTEND:{fmt(end_dt)}
 SUMMARY:SmartCoach – {session.get("title", "Séance")}
 DESCRIPTION:{description}
+
+BEGIN:VALARM
+TRIGGER:-PT30M
+ACTION:DISPLAY
+DESCRIPTION:Rappel SmartCoach – séance dans 30 minutes
+END:VALARM
+
+BEGIN:VALARM
+TRIGGER:-P1DT20H
+ACTION:DISPLAY
+DESCRIPTION:Rappel SmartCoach – séance demain
+END:VALARM
+
 END:VEVENT
 END:VCALENDAR
 """
+
 
     return ics

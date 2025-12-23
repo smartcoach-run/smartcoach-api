@@ -1,5 +1,17 @@
 🎯 Objectif du document
 
+📌 Statut du document — POINT ZÉRO MVP
+
+Ce document fige l’état du moteur SmartCoach après un audit complet
+(runtime, scénarios, data, QA, intégration).
+
+L’architecture, les contrats et les responsabilités décrits ici sont
+considérés comme STABLES pour la phase MVP.
+
+Toute évolution ultérieure devra être motivée par un usage réel
+et validée explicitement.
+
+
 Ce document fige l’état stable du moteur SmartCoach après validation complète de :
 
 SCN_6 (orchestrateur)
@@ -13,6 +25,91 @@ SCN_0g V1 (générateur legacy)
 Suite de tests QA SCN_6 (local + Fly)
 
 Il sert de référence de non-régression avant toute évolution.
+
+🗂️ Organisation du projet (repères)
+
+🔵 Runtime & orchestration
+
+Décision, exécution, enchaînement des scénarios
+
+scn_6.py — orchestrateur décisionnel principal
+
+dispatcher.py — routage des scénarios
+
+scn_run.py — adaptateur vers le moteur externe
+
+api.py — exposition FastAPI
+
+🔵 Génération & socle métier
+
+Génération concrète des séances
+
+scn_0g.py — socle EF (actif)
+
+scn_2.py — génération séance running
+
+bab_engine_mvp.py — sélection finale de séance
+
+🔵 Données & normalisation
+
+Accès Airtable et préparation des données
+
+airtable_fields.py — dictionnaire de champs
+
+airtable_service.py — accès Airtable
+
+extractors.py, validators.py, selectors.py
+
+🟣 QA & diagnostic
+
+Tests, non-régression, introspection
+
+selftest.py
+
+registry_scn_6.py
+
+war_room.py
+
+🟡 Utilitaires / sorties
+
+Hors moteur décisionnel
+
+ics_builder.py
+
+router.py (ICS)
+
+logger.py
+
+🔴 Legacy (hors trajectoire)
+
+Conservé à titre d’archive, non utilisé par le moteur actuel
+
+providers monolithiques
+
+modèles riches non intégrés
+
+adaptateurs historiques
+
+(sans forcément lister tous les fichiers)
+
+🧠 Pourquoi cette forme est la bonne
+
+✔️ lisible en 1 minute
+
+✔️ stable dans le temps
+
+✔️ ne casse pas si un fichier bouge
+
+✔️ empêche les mauvaises réintroductions
+
+✔️ complète parfaitement le contrat runtime
+
+👉 C’est une carte mentale, pas un inventaire comptable.
+
+🧭 Règle d’or à retenir
+
+Si un développeur a besoin de plus de 2 lignes pour comprendre un fichier,
+ce n’est pas au README de le faire.
 
 🧩 Vue d’ensemble (architecture stabilisée)
 Entrée (Make / Postman / QA API)
@@ -257,6 +354,16 @@ en local
 
 sur Fly.io
 
+📌 Code legacy / hors trajectoire
+
+Certains fichiers identifiés lors de l’audit (providers monolithiques,
+modèles riches non utilisés, adaptateurs historiques) sont volontairement
+hors trajectoire du moteur actuel.
+
+Ils sont conservés à titre d’archive ou de référence, mais ne doivent
+pas être réintroduits dans le runtime SmartCoach.
+
+
 🧭 Prochaines évolutions (HORS PÉRIMÈTRE ACTUEL)
 
 organisation globale des validations QA (CI, regroupement)
@@ -268,3 +375,222 @@ enrichissement SC-002
 ajout scénarios Vitalité / Kids / Hyrox
 
 📌 Aucune de ces évolutions ne doit casser SC-001 / SC-002.
+
+📘 Contrat de données SmartCoach (RÉFÉRENCE OFFICIELLE)
+
+Ce document définit le contrat de données officiel entre :
+
+Make / Airtable (amont)
+
+l’API SmartCoach
+
+les scénarios moteur (SCN_6, SCN_0g)
+
+Toute évolution d’un payload, d’un contexte ou d’un champ doit être validée ici.
+
+🔹 1. Principe général
+
+Le moteur SmartCoach est déterministe
+
+Il ne reconstruit jamais l’intention métier
+
+Toute décision repose sur un contexte fourni en amont
+
+👉 Un JSON valide n’implique pas un contexte valide.
+
+🔹 2. Contexte moteur de référence : run_context
+
+SCN_6 consomme exclusivement le contexte suivant :
+
+{
+  "slot": {
+    "slot_id": "string",          // OBLIGATOIRE
+    "date": "YYYY-MM-DD"          // OBLIGATOIRE
+  },
+  "profile": {
+    "mode": "running | vitalité | kids | hyrox",   // OBLIGATOIRE
+    "submode": "string",                           // optionnel
+    "age": number                                  // OBLIGATOIRE
+  },
+  "objective": {
+    "type": "distance | temps | marathon | null",  // optionnel
+    "time": "HH:MM:SS | null"                       // optionnel
+  },
+  "objectif_normalisé": "RUN_PLAISIR | M | ..."    // OBLIGATOIRE
+}
+
+🔹 3. Champs obligatoires (INVARIANTS)
+
+Sans ces champs, le moteur fonctionne mais refuse de décider :
+
+slot.slot_id
+
+slot.date
+
+profile.mode
+
+profile.age
+
+objectif_normalisé
+
+🔹 4. Champs optionnels
+
+profile.submode
+
+objective.type
+
+objective.time
+
+Ils enrichissent la décision mais ne sont pas bloquants.
+
+🔹 5. Champs internes moteur (NE PAS FOURNIR)
+
+Ces champs sont :
+
+produits par le moteur
+
+non persistés
+
+non contractuels
+
+Exemples :
+
+model_family
+
+scores
+
+war_room
+
+phase_context
+
+🔹 6. SOCLE — SCN_0g
+SCN_0g V1 (ACTIF)
+
+Contrat minimal
+
+Génère une séance à partir de :
+
+{
+  "slot": {
+    "slot_id": "string",
+    "date": "YYYY-MM-DD",
+    "type": "E | T | …"
+  }
+}
+
+SCN_0g vNext (DÉSACTIVÉ)
+
+Réactivation possible uniquement si :
+
+le contrat run_context est figé
+
+model_family est toujours présent
+
+SCN_6 est l’unique point d’entrée moteur
+
+🔹 7. Règle de gouvernance (GARDE-FOU)
+
+Avant toute évolution :
+
+modification de payload Make
+
+ajout de champ
+
+enrichissement de scénario
+
+👉 Vérifier et mettre à jour ce contrat en premier.
+
+SCENARIOS MAKE 
+
+SCN_0a_V2 – Rôle
+
+Accueil immédiat utilisateur après Fillout.
+Envoi d’un message de bienvenue personnalisé via le moteur SmartCoach.
+
+Contrat d’entrée
+
+champs attendus
+
+format
+
+Contrat moteur
+
+endpoint
+
+payload
+
+réponse attendue
+
+🟠 Orchestration Make — CORE_1 / CORE_2 (STABLE)
+
+Le moteur SmartCoach est orchestré par deux scénarios Make distincts, aux responsabilités strictement séparées.
+
+CORE_1 — Bootstrap du plan (STABLE)
+
+Rôle :
+
+déclenchement initial après validation utilisateur
+
+génération de la première séance
+
+création du premier slot
+
+Caractéristiques :
+
+appelé une seule fois par plan
+
+peut générer une session avant la création du slot
+
+initialise session_id sur le slot
+
+Statut :
+
+scénario de bootstrap
+
+asymétrie slot / session assumée
+
+ne doit pas être appelé en boucle
+
+CORE_2 — Cycle de vie du plan (STABLE)
+
+Rôle :
+
+traitement des slots planifiés
+
+génération des séances suivantes
+
+envoi ICS
+
+création du slot suivant
+
+Règles invariantes :
+
+ne traite que les slots avec :
+
+status = pending
+
+session_id vide
+
+ne crée jamais de session lors de la création d’un slot
+
+crée un slot après envoi de l’ICS
+
+garantit : 1 slot → 1 session → 1 ICS
+
+Sécurité :
+
+idempotent
+
+relançable sans double génération
+
+protégé contre les retries Make / HTTP
+
+🔒 Invariants d’orchestration (à ne jamais casser)
+
+slot_id = Record ID Airtable
+
+session_id est créé uniquement par generate_session
+
+un slot peut exister sans session
+
+un slot avec session_id ne doit jamais être retraité

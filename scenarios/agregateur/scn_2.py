@@ -22,6 +22,8 @@ from typing import Dict, Any, List, Tuple
 
 from core.internal_result import InternalResult
 from core.utils.logger import log_info, log_error
+from ics.ics_builder import run_generate_ics
+
 
 MODULE_NAME = "SCN_2"
 
