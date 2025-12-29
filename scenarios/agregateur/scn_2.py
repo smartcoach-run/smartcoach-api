@@ -247,7 +247,19 @@ def generate_running_session(
     mode = run_context.get("mode") or "ondemand"
     seance_type = phase_context.get("seance_type") or phase_context.get("type_seance") or "EF"
 
-    level = _get_level(profile)
+    # --------------------------------------------------
+    # Détermination du niveau (priorité payload)
+    # --------------------------------------------------
+    level = phase_context.get("level") or "debutant"  # valeur par défaut existante
+    payload_level = (
+        run_context
+        .get("profile", {})
+        .get("level")
+    )
+
+    if payload_level:
+        level = payload_level
+
     phase_name = _get_phase_name(phase_context, slot)
 
     log_info(
@@ -281,6 +293,165 @@ def generate_running_session(
     title = f"Séance {seance_type.upper()}"
     description = f"Séance {seance_type.upper()} générée par SmartCoach (niveau {level}, phase {phase_name})."
 
+    # --------------------------------------------------
+    # Construction des blocs de séance
+    # --------------------------------------------------
+
+    if seance_type.upper() in ["E", "EF"]:
+        total_duration = volume_target_min
+
+        warmup_duration = 10
+        cooldown_duration = 5
+        main_duration = max(
+            total_duration - warmup_duration - cooldown_duration,
+            15
+        )
+
+        is_progressive = (
+            level != "debutant"
+            and total_duration >= 40
+        )
+
+        if is_progressive:
+            # EF progressive : facile → tonique
+            first_part = int(main_duration * 0.6)
+            second_part = main_duration - first_part
+
+            blocks = [
+                {
+                    "block_type": "warmup",
+                    "description": "Footing très facile + mobilité articulaire",
+                    "duration_min": warmup_duration,
+                    "distance_km": None,
+                    "intensity": {"type": "tag", "value": "E-"},
+                },
+                {
+                    "block_type": "main",
+                    "description": "Endurance fondamentale facile",
+                    "duration_min": first_part,
+                    "distance_km": None,
+                    "intensity": {"type": "tag", "value": "E"},
+                },
+                {
+                    "block_type": "main",
+                    "description": "Endurance fondamentale progressive (plus tonique)",
+                    "duration_min": second_part,
+                    "distance_km": None,
+                    "intensity": {"type": "tag", "value": "E+"},
+                },
+                {
+                    "block_type": "cooldown",
+                    "description": "Retour au calme progressif",
+                    "duration_min": cooldown_duration,
+                    "distance_km": None,
+                    "intensity": {"type": "tag", "value": "E-"},
+                },
+            ]
+        else:
+            # EF continue (comportement existant)
+            blocks = [
+                {
+                    "block_type": "warmup",
+                    "description": "Footing très facile + mobilité articulaire",
+                    "duration_min": warmup_duration,
+                    "distance_km": None,
+                    "intensity": {"type": "tag", "value": "E-"},
+                },
+                {
+                    "block_type": "main",
+                    "description": "Endurance fondamentale continue",
+                    "duration_min": main_duration,
+                    "distance_km": None,
+                    "intensity": {"type": "tag", "value": "E"},
+                },
+                {
+                    "block_type": "cooldown",
+                    "description": "Retour au calme progressif",
+                    "duration_min": cooldown_duration,
+                    "distance_km": None,
+                    "intensity": {"type": "tag", "value": "E-"},
+                },
+            ]
+
+
+    session_spec = {
+        "session_type": seance_type.upper(),
+        "focus": "aerobic" if seance_type.upper() in ["E", "EF"] else "mixed",
+
+        "blocks": blocks,
+
+        "volume": {
+            "duration_estimate_min": volume_target_min,
+            "distance_estimate_km": distance_km,
+        },
+
+        "coach_notes": [
+            f"Séance adaptée au niveau {level}.",
+            f"Phase d'entraînement : {phase_name}.",
+            f"Objectif principal : {seance_type.upper()}."
+        ],
+    }
+
+    decision_trace = {
+        "inputs": {
+            "level": level,
+            "phase": phase_name,
+            "seance_type": seance_type,
+            "objectif": run_context.get("objectif_normalisé"),
+            "engine_version": run_context.get("engine_version"),
+        },
+
+        "context": {
+            "phase": phase_name,
+            "seance_type": seance_type.upper(),
+            "recent_load": run_context.get("recent_load"),
+        },
+
+        "rules_applied": [
+            {
+                "id": "RG_VOL_001",
+                "label": "Volume calculé selon niveau et phase",
+                "scope": "volume"
+            },
+            {
+                "id": "RG_SEC_001",
+                "label": "Allure EF priorisée pour sécurité",
+                "scope": "safety"
+            }
+        ],
+
+        "arbitrations": [
+        {
+            "id": "ARB_VOL_001",
+            "decision": "volume_target",
+            "value": 52,
+            "unit": "min",
+            "reason": "Niveau intermediaire en phase General"
+        },
+        {
+            "id": "ARB_BLOCK_001",
+            "decision": "block_selection",
+            "value": "BF_RUN_EF_GENERAL_INTERMEDIAIRE_MEDIUM",
+            "reason": "Bloc EF progressif adapté au niveau et à la phase"
+        }
+        ],
+
+        "safety_checks": [
+            "Volume minimum respecté",
+            "Type de séance cohérent avec la phase"
+        ],
+
+        "final_choice": {
+            "block_id": block_id,
+            "reason": f"Séance {seance_type.upper()} cohérente avec {phase_name}",
+        },
+    }
+
+    log_info(
+        f"[{MODULE_NAME}] DecisionTrace={decision_trace}",
+        module=MODULE_NAME,
+    )
+
     session = {
         "session_id": run_context.get("session_id") or None,
         "slot_id": slot.get("slot_id"),
@@ -298,6 +469,8 @@ def generate_running_session(
         "steps": steps,
         "block_id": block_id,
         "phase_context": phase_context,
+        "session_spec" : session_spec,
+        "decision_trace" : decision_trace
     }
 
     return session

@@ -36,14 +36,29 @@ def run_scn_run(context):
 
     log_info(f"[SCN_RUN] run_context keys (final) = {list(run_context.keys())}")
 
-    # Appel du moteur BAB Engine
+    # --------------------------------------------------
+    # Sélection du moteur de génération
+    # --------------------------------------------------
+    engine_version = run_context.get("engine_version")
+    mode = run_context.get("profile", {}).get("mode")
+
     try:
-        from engine import bab_engine_mvp
-        result = bab_engine_mvp.run(run_context)
+        # 🔵 Nouveau moteur RUNNING (SCN_2) — activé par flag
+        if engine_version == "C" and mode == "running":
+            log_info("[SCN_RUN] engine_version=C → utilisation SCN_2")
+            from scenarios.agregateur.scn_2 import run_scn_2
+            result = run_scn_2(context)
+
+        # 🔴 Fallback legacy — BAB_ENGINE_MVP (SCN_0g)
+        else:
+            log_info("[SCN_RUN] fallback BAB_ENGINE_MVP (SCN_0g)")
+            from engine import bab_engine_mvp
+            result = bab_engine_mvp.run(run_context)
+
     except Exception as e:
-        log_error(f"[SCN_RUN] Exception BAB_ENGINE_MVP : {e}")
+        log_error(f"[SCN_RUN] Exception moteur : {e}")
         return InternalResult.error(
-            message=f"Erreur SCN_RUN : Exception BAB_ENGINE_MVP : {e}",
+            message=f"Erreur SCN_RUN : Exception moteur : {e}",
             source="SCN_RUN",
             data={"exception": str(e)},
         )

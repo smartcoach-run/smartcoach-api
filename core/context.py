@@ -21,7 +21,8 @@ class SmartCoachContext(BaseModel):
     objectif_normalisé: Optional[str] = None 
     age: Optional[str] = None 
     mode: Optional[str] = None 
-    submode: Optional[str] = None 
+    submode: Optional[str] = None
+    level: Optional[str] = None
     war_room: Optional[str] = None 
 
     # --- Airtable ---

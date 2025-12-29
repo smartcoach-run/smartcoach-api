@@ -1,4 +1,5 @@
 import logging
+from core.utils.logger import log_info, log_error
 from typing import Any, Dict
 
 from core.internal_result import InternalResult
@@ -68,6 +69,7 @@ def run_scn_6(payload, record_id=None):
         context.mode = profile.get("mode")
         context.submode = profile.get("submode")
         context.age = profile.get("age")
+        context.level = profile.get("level")
 
         context.objective_type = objective.get("type")
         context.objective_time = objective.get("time")
@@ -152,32 +154,49 @@ def run_scn_6(payload, record_id=None):
             )
 
         # ----------------------------------------------------
-        # 5) Exécution SOCLE SCN_0g
+        # 5) Exécution SOCLE SCN_0g / SCN_2
         # ----------------------------------------------------
         # ⚠️ Adaptation contrat SCN_0g V1 (payload legacy)
+
+        incoming_run_context = run_ctx
+        engine_version = incoming_run_context.get("engine_version")
+        mode = (incoming_run_context.get("profile", {}).get("mode") or "").lower()
+
         context.payload = {
             "slot": {
                 "slot_id": context.slot_id,
                 "date": context.slot_date,
-                "type": context.type_cible,  # optionnel mais cohérent
+                "type": context.type_cible,
+            },
+            "profile": {
+                "level": context.level
             }
         }
-        
-        result = run_scn_0g(context)
+
+        if engine_version == "C" and mode == "running":
+            log_info("[SCN_6] engine_version=C → utilisation SCN_2")
+            from scenarios.agregateur.scn_2 import run_scn_2
+            result = run_scn_2(context)
+        else:
+            log_info("[SCN_6] fallback SCN_0g (V1)")
+            from scenarios.socle.scn_0g import run_scn_0g
+            result = run_scn_0g(context)
+
 
         if not result.success:
             raise RuntimeError(f"SCN_0g a échoué : {result.message}")
 
         final_data = result.data or {}
         final_data["war_room"] = context.war_room
-
         # ----------------------------------------------------
         # 6) Réponse finale
         # ----------------------------------------------------
+        engine_label = "SCN_2" if engine_version == "C" else "SCN_0g"
+
         return InternalResult.ok(
-            data=final_data,
+            message=f"Séance générée avec {engine_label} via SCN_6",
             source="SCN_6",
-            message="Séance générée avec SCN_0g via SCN_6",
+            data=final_data,
         )
 
     except Exception as e:

@@ -399,7 +399,7 @@ Toute décision repose sur un contexte fourni en amont
 👉 Un JSON valide n’implique pas un contexte valide.
 
 🔹 2. Contexte moteur de référence : run_context
-
+Ce contrat est rappelé ici comme référence officielle et unique.
 SCN_6 consomme exclusivement le contexte suivant :
 
 {
@@ -410,8 +410,9 @@ SCN_6 consomme exclusivement le contexte suivant :
   "profile": {
     "mode": "running | vitalité | kids | hyrox",   // OBLIGATOIRE
     "submode": "string",                           // optionnel
-    "age": number                                  // OBLIGATOIRE
-  },
+    "age": number,                                 // OBLIGATOIRE
+    "level": "debutant | intermediaire | avance"   // OBLIGATOIRE (Phase 2+)
+  }
   "objective": {
     "type": "distance | temps | marathon | null",  // optionnel
     "time": "HH:MM:SS | null"                       // optionnel
@@ -432,6 +433,8 @@ profile.mode
 profile.age
 
 objectif_normalisé
+
+profile.level
 
 🔹 4. Champs optionnels
 
@@ -594,3 +597,35 @@ session_id est créé uniquement par generate_session
 un slot peut exister sans session
 
 un slot avec session_id ne doit jamais être retraité
+
+Chaque séance générée par le moteur inclut un champ `decision_trace`
+décrivant explicitement le raisonnement moteur.
+decision_trace: {
+  inputs: {
+    level,
+    phase,
+    seance_type,
+    objectif,
+    engine_version — champ interne moteur, optionnel
+  },
+  rules_applied: [
+    { id, label, scope }
+  ],
+  arbitrations: [
+    { id, decision, value, unit?, reason }
+  ],
+  safety_checks: [ string ],
+  final_choice: {
+    block_id,
+    reason
+  }
+}
+
+La Phase 3 introduira des mécanismes d’adaptation du moteur
+basés sur des signaux explicites (feedback, charge, progression).
+
+Principes non négociables :
+- aucune adaptation implicite
+- toute adaptation génère une nouvelle decision_trace
+- les règles d’adaptation sont nommées et traçables
+- SCN_6 reste orchestrateur uniquement
