@@ -118,7 +118,6 @@ def validate_objectif(record: dict) -> List[str]:
 
     return errors
 
-
 # ============================================================
 # VALIDATE JOURS
 # ============================================================
@@ -168,6 +167,22 @@ def validate_date_objectif(record: dict) -> List[str]:
 
     return errors
 
+# ============================================================
+# VALIDATE ADAPTIVE CONTEXT (syntaxe uniquement)
+# ============================================================
+def validate_adaptive_context(run_context: dict) -> None:
+    ac = (run_context or {}).get("adaptive_context")
+    if ac is None:
+        return
+    if not isinstance(ac, dict):
+        raise ValueError("adaptive_context must be an object/dict")
+
+    ps = ac.get("perceived_state")
+    if ps is None:
+        return  # optional even if adaptive_context exists
+    if ps not in {"fatigued", "neutral", "good"}:
+        # On peut choisir: raise (strict) ou ignore (safe). V1 : strict pour qualité.
+        raise ValueError(f"adaptive_context.perceived_state invalid: {ps}")
 
 # ============================================================
 # ENTRY POINT — VALIDATE ALL

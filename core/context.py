@@ -23,7 +23,8 @@ class SmartCoachContext(BaseModel):
     mode: Optional[str] = None 
     submode: Optional[str] = None
     level: Optional[str] = None
-    war_room: Optional[str] = None 
+    adaptation: Optional[Dict[str, Any]] = None
+    war_room: Optional[Dict[str, Any]] = None 
 
     # --- Airtable ---
     airtable_api_key: Optional[str] = None

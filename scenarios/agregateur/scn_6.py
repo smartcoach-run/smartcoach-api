@@ -28,6 +28,57 @@ def compute_type_cible(model_family: str) -> str:
     """
     return TYPE_CIBLE_BY_FAMILY.get(model_family, "E")
 
+# ----------------------------------------------------------------------
+# P3-E – Mémoire courte feedback J-1 / J-2
+# ----------------------------------------------------------------------
+
+def compute_adaptive_context(feedback_slots):
+    """
+    Calcule le contexte adaptatif à partir des slots feedback (J-1 / J-2).
+    feedback_slots : liste de records Airtable (dict)
+    """
+    states = []
+
+    for slot in feedback_slots or []:
+        fields = slot.get("fields", {}) or {}
+        etat = fields.get("feedback_etat")
+        if etat:
+            states.append(etat)
+
+    count_fatigued = states.count("fatigued")
+    has_good = "good" in states
+
+    if count_fatigued >= 2:
+        return {
+            "perceived_state": "fatigued",
+            "fatigue_streak": 2,
+            "memory_window": "J-1/J-2",
+            "rule": "RG_MEM_001_PERSISTENT_FATIGUE",
+        }
+
+    if count_fatigued == 1 and not has_good:
+        return {
+            "perceived_state": "fatigued",
+            "fatigue_streak": 1,
+            "memory_window": "J-1/J-2",
+            "rule": "RG_MEM_001_SINGLE_FATIGUE",
+        }
+
+    if has_good:
+        return {
+            "perceived_state": "good",
+            "fatigue_streak": 0,
+            "memory_window": "J-1/J-2",
+            "rule": "RG_MEM_001_GOOD_STATE",
+        }
+
+    return {
+        "perceived_state": "neutral",
+        "fatigue_streak": 0,
+        "memory_window": "J-1/J-2",
+        "rule": "RG_MEM_001_NEUTRAL",
+    }
+
 # ======================================================================
 #  SCN_6 – Orchestrateur OnDemand (version CLEAN v2026-ready)
 # ======================================================================
@@ -42,16 +93,45 @@ def run_scn_6(payload, record_id=None):
     if context.war_room is None:
         context.war_room = {}
 
+    # ✅ GARDE-FOU GLOBAL SCN_2
+    if context.adaptation is None:
+        context.adaptation = {
+            "perceived_state": "neutral",
+            "fatigue_streak": 0
+        }
+        context.war_room["adaptation_initialized_default"] = True
+
     try:
         # ----------------------------------------------------
         # 1) Extraction universelle du run_context
         # ----------------------------------------------------
         if isinstance(payload, dict):
             run_ctx = payload.get("run_context", {}) or {}
+
+            # ----------------------------------------------------
+            # GARDE-FOU SCN_2 : adaptation TOUJOURS présente
+            # (même sans feedback utilisateur)
+            # ----------------------------------------------------
+            if "adaptation" not in run_ctx:
+                run_ctx["adaptation"] = {
+                    "perceived_state": "neutral",
+                    "fatigue_streak": 0
+                }
         elif hasattr(payload, "payload") and isinstance(payload.payload, dict):
             run_ctx = payload.payload.get("run_context", {}) or {}
         else:
             run_ctx = getattr(payload, "run_context", {}) or {}
+        # ----------------------------------------------------
+        # 1ter) Extraction des feedbacks slots (P3-E)
+        # ----------------------------------------------------
+        if isinstance(payload, dict):
+            feedback_slots = payload.get("feedback_slots", [])
+        elif hasattr(payload, "payload") and isinstance(payload.payload, dict):
+            feedback_slots = payload.payload.get("feedback_slots", [])
+        else:
+            feedback_slots = []
+
+        context.war_room["feedback_slots_count"] = len(feedback_slots)
 
         # ----------------------------------------------------
         # 2) Extraction du slot
@@ -130,6 +210,25 @@ def run_scn_6(payload, record_id=None):
         context.__dict__["type_cible"] = type_cible
         context.war_room["type_cible"] = type_cible
 
+        # ----------------------------------------------------
+        # 4ter) Calcul du contexte adaptatif (P3-E)
+        # ----------------------------------------------------
+        adaptive_context = compute_adaptive_context(feedback_slots)
+        context.__dict__["adaptive_context"] = adaptive_context
+        context.war_room["adaptive_context"] = adaptive_context
+
+        # ----------------------------------------------------
+        # 4quater) Initialisation adaptation (contrat SCN_2)
+        # ----------------------------------------------------
+        adaptation = {
+            "perceived_state": adaptive_context.get("perceived_state"),
+            "fatigue_streak": adaptive_context.get("fatigue_streak", 0),
+        }
+
+        # ✅ écrasement contrôlé
+        context.adaptation = adaptation
+        context.war_room["adaptation_overridden_by_P3E"] = True
+        
         # --------------------------------------------------
         # 5) Persistence du Type_cible dans Airtable (Slots)
         # --------------------------------------------------
@@ -159,19 +258,50 @@ def run_scn_6(payload, record_id=None):
         # ⚠️ Adaptation contrat SCN_0g V1 (payload legacy)
 
         incoming_run_context = run_ctx
+
         engine_version = incoming_run_context.get("engine_version")
         mode = (incoming_run_context.get("profile", {}).get("mode") or "").lower()
+        if "adaptation" not in incoming_run_context:
+            incoming_run_context["adaptation"] = {
+                "perceived_state": "neutral",
+                "fatigue_streak": 0
+            }
 
+        # ----------------------------------------------------
+        # 5bis-ter) Injection adaptation dans run_context (contrat SCN_2 réel)
+        # ----------------------------------------------------
+        incoming_run_context["adaptation"] = {
+            "perceived_state": adaptive_context.get("perceived_state"),
+            "fatigue_streak": adaptive_context.get("fatigue_streak", 0),
+        }
+
+        context.war_room["adaptation_injected_in_run_context"] = True
+
+        # ----------------------------------------------------
+        # Initialisation du phase_context (contrat SCN_2)
+        # ----------------------------------------------------
+        phase_context = {}
+        context.war_room["phase_context_initialized"] = True
+
+        # ----------------------------------------------------
+        # 5bis-final) Payload conforme au contrat SCN_2
+        # ----------------------------------------------------
         context.payload = {
+            "run_context": incoming_run_context,   # ✅ clé attendue par SCN_2
+            "phase_context": phase_context,        # ✅ clé attendue par SCN_2
+
+            # (optionnel) on garde aussi le legacy si SCN_0g en a besoin
             "slot": {
                 "slot_id": context.slot_id,
                 "date": context.slot_date,
-                "type": context.type_cible,
+                "type": getattr(context, "type_cible", None),
             },
             "profile": {
                 "level": context.level
             }
         }
+
+        context.war_room["payload_contract"] = "SCN_2_run_context"
 
         if engine_version == "C" and mode == "running":
             log_info("[SCN_6] engine_version=C → utilisation SCN_2")
@@ -205,3 +335,4 @@ def run_scn_6(payload, record_id=None):
             message=f"Erreur SCN_6 : {e}",
             source="SCN_6",
         )
+

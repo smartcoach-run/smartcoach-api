@@ -629,3 +629,23 @@ Principes non négociables :
 - toute adaptation génère une nouvelle decision_trace
 - les règles d’adaptation sont nommées et traçables
 - SCN_6 reste orchestrateur uniquement
+
+RG_MEM_001 — FATIGUE_PERSISTENCE (P3-E)
+
+Description:
+Le moteur ne réagit pas à un signal isolé de fatigue.
+Il consolide les feedbacks récents sur une fenêtre courte (J-1 / J-2)
+afin d’éviter les sur-réactions.
+
+Fenêtre:
+- 2 dernières séances maximum
+- Feedbacks valides < 72h
+
+Règles:
+- 2× fatigued consécutifs → fatigue persistante
+- 1× fatigued + 1× neutral → maintien
+- good efface toute fatigue précédente
+
+Impact:
+- Production d’un adaptive_context consolidé
+- Aucune logique d’adaptation directe dans SCN_2

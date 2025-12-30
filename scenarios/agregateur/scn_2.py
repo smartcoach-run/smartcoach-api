@@ -23,6 +23,7 @@ from typing import Dict, Any, List, Tuple
 from core.internal_result import InternalResult
 from core.utils.logger import log_info, log_error
 from ics.ics_builder import run_generate_ics
+from engine.adaptation_engine import apply_adaptation
 
 
 MODULE_NAME = "SCN_2"
@@ -86,7 +87,6 @@ def _get_level(profile: Dict[str, Any]) -> str:
 
     # défaut raisonnable
     return "debutant"
-
 
 def _get_phase_name(phase_context: Dict[str, Any], slot: Dict[str, Any]) -> str:
     """
@@ -274,6 +274,45 @@ def generate_running_session(
         historique=historique,
         run_context=run_context,
     )
+    # --- PHASE 3 : adaptation explicite ---------------------------------
+
+    base_decision = {
+        "volume_target_min": volume_target_min,
+        "seance_type": seance_type.upper(),
+    }
+
+    adapted_decision, adaptation_trace = apply_adaptation(run_context, base_decision)
+    # --- CONTRACT GUARD : adapted_decision must expose adaptation ---
+    if not isinstance(adapted_decision, dict):
+        adapted_decision = {}
+
+    adp = adapted_decision.get("adaptation")
+    if not isinstance(adp, dict):
+        adp = {}
+
+    # Defaults expected by SCN_2
+    adp.setdefault("volume_factor", 1.0)
+    adp.setdefault("target_type_override", None)
+
+    adapted_decision["adaptation"] = adp
+
+    # --- PHASE 3-D : adaptation sémantique du type ----------------------
+
+    # Si l'adaptation force un type de séance (ex: EF_ONLY)
+    forced_type = adapted_decision["adaptation"].get("target_type_override")
+
+    if forced_type:
+        # Normalisation explicite vers EF
+        seance_type = "EF"
+
+        # Traçabilité métier claire
+        adaptation_trace.setdefault("arbitrations", []).append(
+            "ARB_ADP_001_SEANCE_TYPE_DOWNGRADE"
+        )
+
+    volume_target_min = int(round(
+        volume_target_min * adapted_decision["adaptation"]["volume_factor"]
+    ))
 
     block_id = _select_block_id(
         seance_type=seance_type,
@@ -399,6 +438,7 @@ def generate_running_session(
             "seance_type": seance_type,
             "objectif": run_context.get("objectif_normalisé"),
             "engine_version": run_context.get("engine_version"),
+            "adaptation": adaptation_trace
         },
 
         "context": {
@@ -492,6 +532,20 @@ def run_scn_2(context) -> InternalResult:
         payload = getattr(context, "payload", {}) or {}
         run_context = payload.get("run_context") or payload
         phase_context = payload.get("phase_context") or {}
+
+        # --- CONTRACT GUARD : adaptation must exist in run_context ---
+        if isinstance(run_context, dict):
+            if "adaptation" not in run_context or run_context.get("adaptation") is None:
+                ctx_adaptation = getattr(context, "adaptation", None)
+
+                if isinstance(ctx_adaptation, dict):
+                    run_context["adaptation"] = ctx_adaptation
+                else:
+                    # Neutral fallback (no adaptation)
+                    run_context["adaptation"] = {
+                        "perceived_state": "neutral",
+                        "fatigue_streak": 0,
+                    }
 
         session = generate_running_session(run_context, phase_context)
 
