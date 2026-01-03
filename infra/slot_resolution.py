@@ -1,3 +1,8 @@
+# ⚠️ LEGACY MODULE
+# Uses weekday() convention (0–6)
+# NOT used by SmartCoach SCN_6
+# Kept for backward compatibility (CORE_1 / CORE_3)
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 from datetime import datetime, timedelta
@@ -41,8 +46,8 @@ def compute_next_slot_date(date_ref: str, day_index: int, days_allowed: list[int
 
     raise ValueError("Aucune date valide trouvée pour le prochain slot")
 
-
 @router.post("/compute_first_slot_date", response_model=Core1Output)
+
 def core_1_compute(input: Core1Input):
     date_slot = compute_first_slot_date(
         date_ref=input.date_ref,
@@ -57,10 +62,13 @@ def core_1_compute(input: Core1Input):
 
     return Core1Output(date_slot=date_slot)
 
-@router.post("/compute_next_slot_date")
-def compute_next_slot(payload: dict):
-    return compute_next_slot_date(
-        payload["date_ref"],
-        payload["day_index"],
-        payload["days_allowed"]
-    )
+#@router.post("/compute_next_slot_date")
+#
+# ! Doublon de next_slot.py !
+#
+#def compute_next_slot(payload: dict):
+#    return compute_next_slot_date(
+#        payload["date_ref"],
+#        payload["day_index"],
+#        payload["days_allowed"]
+#    )

@@ -26,10 +26,11 @@ class ATFIELDS:
     COU_CAP_CHOISI = "🎯 Cap choisi"
     COU_OBJECTIF_CHRONO = "⏱️ Objectif_chrono_fmt"
 
-    COU_DATE_DEBUT_PLAN = "Date début plan (calculée)"
+    COU_DATE_DEBUT_PLAN = "📅 Date dernière demande"
     COU_DATE_COURSE = "date_course"
     COU_DUREE_PLAN_CALC = "Durée_plan_calculée_sem"
     COU_TEST_DUREE_PLAN = "Test_duree_plan"
+    COU_LIEU = "📍 Lieu_final"
 
     COU_NIVEAU = "Niveau"
     COU_NIVEAU_NORMALISE = "Niveau_normalisé"

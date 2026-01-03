@@ -5,6 +5,7 @@ from typing import Optional, Literal, Any, Dict
 from core.utils.logger import get_logger
 from services.airtable_tables import ATABLES
 from services.airtable_service import AirtableService
+from utils.next_slot import compute_next_slot
 
 # On réutilise le calcul de date du CORE_1 (utilitaire pur)
 from infra.slot_resolution import compute_next_slot_date  # ajuste l'import si ton arborescence diffère
@@ -210,9 +211,17 @@ def core_3_next_slot(
             },
         )
 
-    planned_date = (
-        date.fromisoformat(date_ref) + timedelta(days=1)
-    ).isoformat()
+    training_days = resolve_training_days(jours_final)  # ISO 1–7
+    current_date = date.fromisoformat(session["date"])
+
+    next_slot = compute_next_slot(
+        current_date=current_date,
+        training_days=training_days
+    )
+
+    final_data["next_slot"] = next_slot
+    context.war_room["next_slot"] = next_slot
+
 
     # 6) Construire le nouveau slot (écriture Airtable)
     next_slot_fields = {

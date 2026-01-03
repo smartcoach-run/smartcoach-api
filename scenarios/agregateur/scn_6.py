@@ -1,5 +1,8 @@
 import logging
+
 from core.utils.logger import log_info, log_error
+from datetime import datetime, date
+
 from typing import Any, Dict
 
 from core.internal_result import InternalResult
@@ -7,11 +10,15 @@ from core.context import SmartCoachContext
 
 from scenarios.socle.scn_0g import run_scn_0g
 from scenarios.run.family_selector import scenario_and_family
+
 from services.airtable_service import AirtableService
 from services.airtable_tables import ATABLES
 
+from utils.training_day import resolve_training_days
+from utils.next_slot import compute_next_slot
+
 logger = logging.getLogger("ROOT")
-context = SmartCoachContext()
+#context = SmartCoachContext()
 
 # ----------------------------------------------------------------------
 # Mapping modèle → Type_cible (intensité dominante)
@@ -180,7 +187,7 @@ def run_scn_6(payload, record_id=None):
             "submode": context.submode,
             "objective_type": context.objective_type,
             "objective_time": context.objective_time,
-            "objective_time": context.objectif_normalisé,
+            "objectif_normalisé": context.objectif_normalisé,
             "age": context.age,
         }
 
@@ -228,7 +235,7 @@ def run_scn_6(payload, record_id=None):
         # ✅ écrasement contrôlé
         context.adaptation = adaptation
         context.war_room["adaptation_overridden_by_P3E"] = True
-        
+
         # --------------------------------------------------
         # 5) Persistence du Type_cible dans Airtable (Slots)
         # --------------------------------------------------
@@ -259,7 +266,7 @@ def run_scn_6(payload, record_id=None):
 
         incoming_run_context = run_ctx
 
-        engine_version = incoming_run_context.get("engine_version")
+        engine_version = run_ctx.get("engine_version")
         mode = (incoming_run_context.get("profile", {}).get("mode") or "").lower()
         if "adaptation" not in incoming_run_context:
             incoming_run_context["adaptation"] = {
@@ -318,6 +325,36 @@ def run_scn_6(payload, record_id=None):
 
         final_data = result.data or {}
         final_data["war_room"] = context.war_room
+        
+        # ----------------------------------------------------
+        # 6bis) Calcul du prochain slot (BACKEND ONLY)
+        # ----------------------------------------------------
+        try:
+            # 1️⃣ Récupération des jours d'entraînement (string Airtable)
+            jours_final = run_ctx.get("jours_final")
+            session_date = (run_ctx.get("slot") or {}).get("date")
+
+            if not jours_final:
+                raise ValueError("jours_final manquant dans run_context")
+            if not session_date:
+                raise ValueError("slot.date manquant dans run_context")
+
+            # 2️⃣ Normalisation robuste (string → List[int])
+            training_days = resolve_training_days(jours_final)
+
+            # 4️⃣ Appel UNIQUE à la logique centrale
+            next_slot = compute_next_slot(
+                current_date=date.fromisoformat(session_date),
+                training_days=training_days
+            )
+
+            # 5️⃣ Injection dans la réponse finale
+            final_data["next_slot"] = next_slot
+            context.war_room["next_slot"] = next_slot
+
+        except Exception as e:
+            context.war_room["next_slot_error"] = str(e)
+
         # ----------------------------------------------------
         # 6) Réponse finale
         # ----------------------------------------------------
@@ -335,4 +372,3 @@ def run_scn_6(payload, record_id=None):
             message=f"Erreur SCN_6 : {e}",
             source="SCN_6",
         )
-

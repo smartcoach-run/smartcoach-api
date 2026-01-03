@@ -80,6 +80,87 @@ router.py (ICS)
 
 logger.py
 
+🟡 Génération ICS (STABLE — CONTRAT MVP)
+
+La génération ICS fait partie des sorties utilitaires du moteur SmartCoach.
+
+Elle est hors moteur décisionnel et hors orchestration métier.
+
+Principe fondamental
+
+1 séance générée = 1 fichier ICS
+
+1 ICS = 1 événement calendrier (VEVENT)
+
+Il n’existe aucune génération batch ou multi-séances au stade MVP
+
+Source de vérité
+
+L’ICS est généré exclusivement à partir de :
+
+data.session
+
+
+produit par SCN_6.
+
+Aucune autre partie de la réponse n’est lue ou interprétée :
+
+❌ war_room
+
+❌ scores
+
+❌ phase_context
+
+❌ logique métier implicite
+
+Responsabilités
+
+ics_builder.py :
+
+transforme une session SmartCoach en événement calendrier
+
+n’applique aucune règle métier
+
+n’effectue aucune décision
+
+router.py (ICS) :
+
+expose l’endpoint de génération
+
+enrichit éventuellement avec des données contextuelles simples (ex. lieu)
+
+ne modifie jamais la session
+
+Contenu de l’événement ICS
+
+L’événement calendrier inclut, si disponibles :
+
+titre SmartCoach
+
+date et durée (timezone Europe/Paris)
+
+déroulé de la séance (blocks ou steps)
+
+intensité
+
+phase
+
+messages du coach
+
+alarmes calendrier
+
+Invariants ICS (à ne jamais casser)
+
+timezone explicite Europe/Paris
+
+1 session → 1 UID stable
+
+aucune logique de génération de séance
+
+aucun appel moteur depuis l’ICS
+
+l’ICS est idempotent et reproductible
+
 🔴 Legacy (hors trajectoire)
 
 Conservé à titre d’archive, non utilisé par le moteur actuel

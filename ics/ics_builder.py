@@ -1,9 +1,13 @@
 # ICS stable – ne pas modifier sans test local + import agenda
 # Le 13/12/2025
-from datetime import datetime, timedelta
-from uuid import uuid4
 from core.internal_result import InternalResult
 from core.utils.logger import log_error, log_info
+
+from datetime import datetime, timedelta
+
+from uuid import uuid4
+
+from zoneinfo import ZoneInfo
 
 MODULE_NAME = "ICS"
 
@@ -34,7 +38,13 @@ def run_generate_ics(context) -> InternalResult:
             source=MODULE_NAME,
             data={}
         )
-def build_ics(session: dict, start_hour: int = 7) -> str:
+
+def build_ics(
+    session: dict,
+    *,
+    start_hour: int = 7,
+    location: str | None = None,
+) -> str:
     """
     Génère un contenu ICS à partir d'une session SmartCoach
     """
@@ -45,14 +55,7 @@ def build_ics(session: dict, start_hour: int = 7) -> str:
 
     # Patch Make: parfois date arrive sous forme '"2025-12-15"'
     date_str = str(date_str).strip().strip('"')
-
-    start_dt = datetime.strptime(
-        f"{date_str} {start_hour:02d}:00",
-        "%Y-%m-%d %H:%M"
-    )
-
     duration = session.get("duration_min")
-
     if duration is None:
         # fallback intelligent
         steps = session.get("steps", [])
@@ -67,27 +70,93 @@ def build_ics(session: dict, start_hour: int = 7) -> str:
         raise ValueError("ICS: durée introuvable (session.duration_min ou steps.duration_min)")
 
     title = session.get("title", "Séance SmartCoach")
-    session_id = session["session_id"]   # celui-ci existe toujours
+    session_id = (
+        session.get("session_id")
+        or session.get("slot_id")
+        or uuid4().hex
+    )
 
+    uid = f"{session_id}@smartcoach.run"
+
+    tz = ZoneInfo("Europe/Paris")
     # Début / fin
-    start_dt = datetime.strptime(f"{date_str} {start_hour:02d}:00", "%Y-%m-%d %H:%M")
+    start_dt = datetime.strptime(
+        f"{date_str} {start_hour:02d}:00",
+        "%Y-%m-%d %H:%M"
+    ).replace(tzinfo=tz)
+
     end_dt = start_dt + timedelta(minutes=duration)
 
     def fmt(dt: datetime) -> str:
         return dt.strftime("%Y%m%dT%H%M%S")
 
     # Description lisible
-    steps_desc = []
-    for step in session.get("steps", []):
-        if step["type"] == "EF":
-            steps_desc.append(f"- EF {step['duration_min']} min")
-        elif step["type"] == "BLOCK":
-            steps_desc.append(f"- Bloc x{step['repeats']}")
-        elif step["type"] == "COOLDOWN":
-            steps_desc.append(f"- Retour au calme {step['duration_min']} min")
+    lines = []
 
-    description = "\\n".join(steps_desc)
-    uid = f"{session_id}@smartcoach.run"
+    duration = session.get("duration_min")
+    distance = session.get("distance_km")
+    phase = session.get("phase")
+    intensity_tags = session.get("intensity_tags", [])
+
+    lines = []
+
+    # En-tête SmartCoach
+    lines.append(f"🏃 SmartCoach – {session.get('title', 'Séance')}")
+    if phase:
+        lines.append(f"Phase : {phase}")
+    lines.append(f"Durée : {duration} min")
+
+    if distance:
+        lines.append(f"Distance : {distance} km")
+
+    if intensity_tags:
+        lines.append(f"Intensité : {', '.join(intensity_tags)}")
+
+    lines.append("")
+    lines.append("📋 Déroulé de la séance")
+
+    blocks = (
+        session
+        .get("session_spec", {})
+        .get("blocks", [])
+    )
+    if not blocks:
+        for idx, step in enumerate(session.get("steps", []), start=1):
+            label = step.get("label", "Bloc")
+            d = step.get("duration_min", "?")
+            comment = step.get("comment")
+
+            line = f"{idx}) {label} ({d} min)"
+            if comment:
+                line += f" – {comment}"
+
+            lines.append(line)
+
+    for idx, block in enumerate(blocks, start=1):
+        desc = block.get("description", "Bloc")
+        d = block.get("duration_min", "?")
+        intensity = block.get("intensity", {}).get("value")
+
+        line = f"{idx}) {desc} ({d} min)"
+        if intensity:
+            line += f" [{intensity}]"
+
+        lines.append(line)
+
+    # Messages coach
+    coach_notes = (
+        session
+        .get("session_spec", {})
+        .get("coach_notes", [])
+    )
+
+    if coach_notes:
+        lines.append("")
+        lines.append("💡 Conseils du coach")
+        for note in coach_notes:
+            lines.append(f"• {note}")
+
+    description = "\\n".join(lines)
 
     ics = f"""BEGIN:VCALENDAR
 VERSION:2.0
@@ -96,10 +165,16 @@ BEGIN:VEVENT
 UID:{uid}
 SEQUENCE:0
 DTSTAMP:{fmt(datetime.utcnow())}
-DTSTART:{fmt(start_dt)}
-DTEND:{fmt(end_dt)}
+DTSTART;TZID=Europe/Paris:{fmt(start_dt)}
+DTEND;TZID=Europe/Paris:{fmt(end_dt)}
 SUMMARY:SmartCoach – {session.get("title", "Séance")}
 DESCRIPTION:{description}
+"""
+
+    if location:
+        ics += f"\nLOCATION:{location}"
+
+    ics += """
 
 BEGIN:VALARM
 TRIGGER:-PT30M
@@ -116,6 +191,4 @@ END:VALARM
 END:VEVENT
 END:VCALENDAR
 """
-
-
     return ics

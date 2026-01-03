@@ -234,3 +234,30 @@ class AirtableService:
                 module="AirtableService"
             )
             return None
+    # ---------------------------------------------------------
+    # Mise à jour directe d’un record par son record_id Airtable
+    # (PATCH by ID – usage SCN_1)
+    # ---------------------------------------------------------
+    def update_record_by_id(self, table_id: str, record_id: str, fields: dict):
+        """
+        Met à jour un record Airtable en utilisant directement son record_id.
+        Ne fait PAS de lookup par formule.
+        """
+        from core.utils.logger import log_info, log_error
+
+        try:
+            self.set_table(table_id)
+
+            log_info(
+                f"[AirtableService] Update by ID → {table_id}/{record_id}",
+                module="AirtableService"
+            )
+
+            return self.table.update(record_id, fields)
+
+        except Exception as e:
+            log_error(
+                f"[AirtableService] Erreur update_record_by_id sur {table_id}/{record_id} : {e}",
+                module="AirtableService"
+            )
+            raise

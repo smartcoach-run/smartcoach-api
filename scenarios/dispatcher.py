@@ -9,7 +9,7 @@ from core.internal_result import InternalResult
 
 # ➜ Tous tes scénarios fonctionnels sont bien dans agregateur
 from scenarios.agregateur.scn_run import run_scn_run
-from scenarios.agregateur.scn_1_v2 import run_scn_1_v2
+from scenarios.agregateur.scn_1 import run_scn_1
 from scenarios.agregateur.scn_2 import run_scn_2
 from scenarios.agregateur.scn_6 import run_scn_6
 from scenarios.agregateur.scn_7 import run_scn_7
@@ -45,7 +45,7 @@ def dispatch_scenario(scn_name: str, record_id: str, payload: dict = None):
     # SCN_1 — Génération du plan (structure)
     # ======================================================
     if scn_name == "SCN_1":
-        return run_scn_1_v2(context)
+        return run_scn_1(context)
 
     # ======================================================
     # SCN_2 — Slots + intentions
@@ -58,7 +58,7 @@ def dispatch_scenario(scn_name: str, record_id: str, payload: dict = None):
 
         # Si absent : exécuter SCN_1 immédiatement
         if not data_scn1:
-            norm_res = run_scn_1_v2(context)
+            norm_res = run_scn_1(context)
 
             if norm_res.status != "ok":
                 return norm_res

@@ -1,5 +1,5 @@
 # api.py
-print("🔥 API VERSION = SLOT_GENERATOR_V1_LOADED")
+
 import logging
 from typing import Optional, Dict, Any, List
 from fastapi import FastAPI, HTTPException, APIRouter
@@ -24,7 +24,8 @@ from routes.resolve_slot import router as resolve_slot_router
 
 from qa.registry_scn_6 import QA_SCN_6
 from scenarios.dispatcher import dispatch_scenario
-from scenarios.agregateur.scn_1_v2 import scn_1_v2_init_slots
+from scenarios.core_simple import run_core_simple
+from scenarios.agregateur.scn_1 import run_scn_1_slots
 from scenarios.agregateur.scn_6 import run_scn_6
 from scenarios.socle.scn_0g import run_scn_0g
 from scenarios.socle.scn_0h import run_scn_0h
@@ -35,6 +36,15 @@ from tests.utils.snapshot import assert_snapshot
 from tests.utils.helpers  import load_json
 
 app = FastAPI()
+APP_VERSION = "2025-12-30-SCN6-OK"
+API_VERSION = "SLOT_GENERATOR_V1_LOADED"
+
+@app.on_event("startup")
+async def log_api_version():
+    logging.getLogger("uvicorn").info(
+        f"🔥 API VERSION LOADED = {APP_VERSION}"
+    )
+
 router = APIRouter(prefix="/core", tags=["CORE"])
 
 app.include_router(router)
@@ -73,12 +83,11 @@ class CoreRunRequest(BaseModel):
     plan_id: Optional[str] = None  # temporaire (root context)
     options: Dict[str, Any] = {}
 
-APP_VERSION = "2025-12-23-SCN6-OK"
-
 @app.get("/version")
 def get_version():
     return {
-        "version": APP_VERSION
+        "version": APP_VERSION,
+        "api_version": API_VERSION,
     }
 
 
@@ -143,9 +152,9 @@ class Scn1V2Payload(BaseModel):
     dispos: List[str]
 
 
-@router.post("/scn_1_v2/init_slots")
+@router.post("/scn_1/init_slots")
 def init_slots(payload: Scn1V2Payload):
-    return scn_1_v2_init_slots(
+    return run_scn_1_slots(
         plan_record_id=payload.plan_record_id,
         user_id=payload.user_id,
         date_debut=payload.date_debut,
@@ -206,6 +215,7 @@ async def generate_session(body: GenerateSessionRequest):
         return {
             "status": "ok",
             "message": "SCN_0g exécuté avec succès",
+            "api_version": API_VERSION,
             "data": result
         }
 
@@ -219,6 +229,25 @@ async def generate_session(body: GenerateSessionRequest):
             "data": None,
             "context": None
         }
+class GenerateCoreSimpleRequest(BaseModel):
+    record_id: str
+    payload: dict
+
+@app.post("/generate")
+async def generate_core_simple(body: GenerateCoreSimpleRequest):
+    context = SmartCoachContext(
+        scenario="CORE_SIMPLE_V1",
+        record_id=body.record_id,
+        payload=body.payload,
+    )
+
+    result = run_core_simple(context)
+
+    return {
+        "status": "ok",
+        "data": result,
+    }
+  
 # =====================================================
 #      ROUTE DEBUG SOCLE : /socle/scn_0h_exec
 # =====================================================
